@@ -1,0 +1,12 @@
+services:
+  sub2api-extra-documentviewer:
+    container_name: sub2apiextra-documentviewer
+    build: .
+    image: sub2apiextra-documentviewer:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6002:3000"
+    environment:
+      TZ: Asia/Singapore
+    volumes:
+      - ./content:/app/content:ro

@@ -1,0 +1,11 @@
+services:
+  sub2api-extra-modelsquare:
+    container_name: sub2apiextra-modelsquare
+    image: ghcr.io/yuzukumo/sub2api-extra-pages-model-square:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6001:3000"
+    environment:
+      TZ: Asia/Singapore
+      MODEL_IDS: "gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna"
+      NOTICE_MESSAGE: "Model availability and pricing are subject to change."

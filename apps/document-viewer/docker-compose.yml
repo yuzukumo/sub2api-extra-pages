@@ -1,0 +1,11 @@
+services:
+  sub2api-extra-documentviewer:
+    container_name: sub2apiextra-documentviewer
+    image: ghcr.io/yuzukumo/sub2api-extra-pages-document-viewer:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6002:3000"
+    environment:
+      TZ: Asia/Singapore
+    volumes:
+      - ./content:/app/content:ro

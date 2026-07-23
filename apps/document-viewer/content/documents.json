@@ -1,0 +1,19 @@
+{
+  "title": {
+    "en-US": "Documentation",
+    "zh-CN": "服务文档",
+    "zh-TW": "服務說明文件",
+    "ru-RU": "Документация"
+  },
+  "documents": [
+    {
+      "file": "introduction.md"
+    },
+    {
+      "file": "api-reference.md"
+    },
+    {
+      "file": "best-practices.md"
+    }
+  ]
+}
