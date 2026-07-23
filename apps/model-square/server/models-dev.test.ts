@@ -55,6 +55,25 @@ describe('models.dev normalization', () => {
     })
   })
 
+  it('omits unusable zero limits from upstream metadata', () => {
+    const zeroLimits: ModelsDevResponse = {
+      openai: {
+        id: 'openai',
+        name: 'OpenAI',
+        models: {
+          'gpt-image': {
+            id: 'gpt-image',
+            limit: { context: 0, output: 0 },
+          },
+        },
+      },
+    }
+
+    const model = normalizeCatalog(zeroLimits, ['gpt-image']).models[0]
+    expect(model.contextWindow).toBeUndefined()
+    expect(model.maxOutput).toBeUndefined()
+  })
+
   it('shows the model creator instead of a gateway provider', () => {
     const gatewayOnly: ModelsDevResponse = {
       gateway: {

@@ -14,30 +14,30 @@
     "check": "npm run test && npm run build"
   },
   "dependencies": {
-    "@ant-design/icons": "^6.3.2",
     "@fastify/static": "^10.1.2",
-    "@lobehub/icons": "^5.10.1",
-    "@tanstack/react-query": "^5.90.0",
-    "antd": "^6.5.1",
     "dotenv": "^17.4.2",
-    "fastify": "^5.0.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "zod": "^4.4.3"
+    "fastify": "^5.0.0"
   },
   "devDependencies": {
+    "@ant-design/icons": "^6.3.2",
+    "@lobehub/icons": "^5.10.1",
+    "@tanstack/react-query": "^5.90.0",
     "@types/node": "^26.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "antd": "^6.5.1",
     "concurrently": "^9.2.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vite": "^8.1.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "zod": "^4.4.3"
   },
   "packageManager": "npm@11.17.0",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24.0.0"
   }
 }

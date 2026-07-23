@@ -86,6 +86,16 @@ function resolveProviderName(modelId: string, candidate: Candidate): string {
     candidate.providerKey
 }
 
+function positiveNumber(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined
+  return value
+}
+
+function nonNegativeNumber(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value) || value < 0) return undefined
+  return value
+}
+
 export function normalizeCatalog(
   data: ModelsDevResponse,
   modelIds: string[],
@@ -109,15 +119,15 @@ export function normalizeCatalog(
       name: model.name || modelId,
       provider: resolveProviderName(modelId, candidate),
       icon: resolveIcon(modelId, candidate),
-      description: model.description,
+      description: model.description?.trim() || undefined,
       capabilities: capabilityKeys(model),
-      contextWindow: model.limit?.context,
-      maxOutput: model.limit?.output,
+      contextWindow: positiveNumber(model.limit?.context),
+      maxOutput: positiveNumber(model.limit?.output),
       pricing: {
-        input: model.cost?.input,
-        output: model.cost?.output,
-        cacheRead: model.cost?.cache_read,
-        cacheWrite: model.cost?.cache_write,
+        input: nonNegativeNumber(model.cost?.input),
+        output: nonNegativeNumber(model.cost?.output),
+        cacheRead: nonNegativeNumber(model.cost?.cache_read),
+        cacheWrite: nonNegativeNumber(model.cost?.cache_write),
       },
     }
   })
