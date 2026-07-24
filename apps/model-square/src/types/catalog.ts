@@ -15,11 +15,20 @@ export type IconKey = (typeof iconKeys)[number]
 
 export type Locale = 'en-US' | 'zh-CN' | 'zh-TW' | 'ru-RU'
 
-export interface ModelPricing {
+export interface ModelPriceFields {
   input?: number
   output?: number
   cacheRead?: number
   cacheWrite?: number
+}
+
+export interface ModelPricing extends ModelPriceFields {
+  tiers?: ModelPricingTier[]
+}
+
+export interface ModelPricingTier {
+  contextWindow: number
+  pricing: ModelPriceFields
 }
 
 export interface CatalogModel {
@@ -35,7 +44,7 @@ export interface CatalogModel {
 }
 
 export interface ModelCatalog {
-  version: 2
+  version: 3
   updatedAt: string
   currency: 'USD' | 'CNY'
   priceUnit: 'MTok' | 'KTok'

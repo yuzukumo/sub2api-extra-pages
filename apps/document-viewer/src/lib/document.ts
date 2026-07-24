@@ -58,6 +58,31 @@ export function getDocumentTitle(headings: DocumentHeading[]): string | undefine
   return headings.find((heading) => heading.level === 1)?.title
 }
 
+export function isSafeDocumentPath(path: string): boolean {
+  if (!path || path.startsWith('/') || path.includes('\\')) return false
+
+  return path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+}
+
+export function getDocumentAssetBase(locale: string, file: string): string {
+  const separator = file.lastIndexOf('/')
+  const directory = separator === -1 ? '' : file.slice(0, separator + 1)
+  return `${locale}/${directory}`
+}
+
+function contentUrl(path: string): string {
+  const suffixIndex = path.search(/[?#]/)
+  const pathname = suffixIndex === -1 ? path : path.slice(0, suffixIndex)
+  const suffix = suffixIndex === -1 ? '' : path.slice(suffixIndex)
+  const prefix = import.meta.env.DEV ? '' : 'content/'
+  const encodedPath = pathname.split('/').map(encodeURIComponent).join('/')
+  return `${import.meta.env.BASE_URL}${prefix}${encodedPath}${suffix}`
+}
+
+export function resolveDocumentUrl(file: string, locale = ''): string {
+  return contentUrl(locale ? `${locale}/${file}` : file)
+}
+
 export function resolveContentUrl(
   url: string | undefined,
   assetBase = '',
@@ -67,5 +92,5 @@ export function resolveContentUrl(
   }
 
   const relativePath = url.replace(/^(\.\.\/|\.\/)+/, '')
-  return `${import.meta.env.BASE_URL}content/${assetBase}${relativePath}`
+  return contentUrl(`${assetBase}${relativePath}`)
 }

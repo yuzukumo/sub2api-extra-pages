@@ -40,7 +40,6 @@ import { formatUpdatedDate, localeOptions, messages } from './i18n'
 import {
   filterModels,
   getProviders,
-  sortModelsById,
 } from './lib/catalog'
 import { catalogSchema } from './schemas/catalog'
 import type { Locale, ModelCatalog } from './types/catalog'
@@ -138,7 +137,7 @@ function CatalogPage({
   const providers = useMemo(() => getProviders(catalog?.models ?? []), [catalog])
   const models = useMemo(() => {
     if (!catalog) return []
-    return sortModelsById(filterModels(catalog.models, { query, provider }))
+    return filterModels(catalog.models, { query, provider })
   }, [catalog, query, provider])
 
   if (catalogQuery.isError) {

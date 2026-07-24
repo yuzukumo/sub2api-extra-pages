@@ -4,17 +4,14 @@ import { resolve } from 'node:path'
 import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { CatalogService } from './catalog-service.js'
-
-function parseModelIds(value: string | undefined): string[] {
-  return [...new Set((value ?? '')
-    .split(/[\n,]/)
-    .map((id) => id.trim())
-    .filter(Boolean))]
-}
+import { resolveModelIds } from './model-config.js'
 
 const port = 3000
 const host = process.env.HOST || '0.0.0.0'
-const modelIds = parseModelIds(process.env.MODEL_IDS)
+const modelIds = resolveModelIds(
+  process.env.MODEL_IDS,
+  process.env.PRESERVE_MODEL_ID_ORDER,
+)
 const notice = process.env.NOTICE_MESSAGE?.trim() || undefined
 const distRoot = resolve(process.env.STATIC_DIR || 'dist')
 

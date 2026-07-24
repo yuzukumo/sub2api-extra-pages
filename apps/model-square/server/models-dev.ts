@@ -1,5 +1,7 @@
 import type {
   CatalogModel,
+  CatalogPricing,
+  CatalogPricingTier,
   CatalogResponse,
   ModelsDevModel,
   ModelsDevProvider,
@@ -96,6 +98,39 @@ function nonNegativeNumber(value: number | undefined): number | undefined {
   return value
 }
 
+function hasPricing(pricing: CatalogPricing): boolean {
+  return Object.values(pricing).some((value) => value !== undefined)
+}
+
+function normalizePricing(model: ModelsDevModel): CatalogModel['pricing'] {
+  const pricing: CatalogPricing = {
+    input: nonNegativeNumber(model.cost?.input),
+    output: nonNegativeNumber(model.cost?.output),
+    cacheRead: nonNegativeNumber(model.cost?.cache_read),
+    cacheWrite: nonNegativeNumber(model.cost?.cache_write),
+  }
+  const tiers: CatalogPricingTier[] = (model.cost?.tiers ?? [])
+    .map((tier) => {
+      if (tier.tier?.type !== 'context') return undefined
+      const contextWindow = positiveNumber(tier.tier.size)
+      if (!contextWindow) return undefined
+
+      const tierPricing: CatalogPricing = {
+        input: nonNegativeNumber(tier.input),
+        output: nonNegativeNumber(tier.output),
+        cacheRead: nonNegativeNumber(tier.cache_read),
+        cacheWrite: nonNegativeNumber(tier.cache_write),
+      }
+      if (!hasPricing(tierPricing)) return undefined
+
+      return { contextWindow, pricing: tierPricing }
+    })
+    .filter((tier): tier is CatalogPricingTier => tier !== undefined)
+    .sort((a, b) => a.contextWindow - b.contextWindow)
+
+  return tiers.length > 0 ? { ...pricing, tiers } : pricing
+}
+
 export function normalizeCatalog(
   data: ModelsDevResponse,
   modelIds: string[],
@@ -123,17 +158,12 @@ export function normalizeCatalog(
       capabilities: capabilityKeys(model),
       contextWindow: positiveNumber(model.limit?.context),
       maxOutput: positiveNumber(model.limit?.output),
-      pricing: {
-        input: nonNegativeNumber(model.cost?.input),
-        output: nonNegativeNumber(model.cost?.output),
-        cacheRead: nonNegativeNumber(model.cost?.cache_read),
-        cacheWrite: nonNegativeNumber(model.cost?.cache_write),
-      },
+      pricing: normalizePricing(model),
     }
   })
 
   return {
-    version: 2,
+    version: 3,
     updatedAt: formatLocalDate(new Date()),
     currency: 'USD',
     priceUnit: 'MTok',

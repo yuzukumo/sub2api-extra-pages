@@ -10,6 +10,15 @@ const pricingSchema = z.object({
   cacheWrite: optionalPrice,
 })
 
+const pricingTierSchema = z.object({
+  contextWindow: z.number().int().positive(),
+  pricing: pricingSchema,
+})
+
+const modelPricingSchema = pricingSchema.extend({
+  tiers: z.array(pricingTierSchema).optional(),
+})
+
 const modelSchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().trim().min(1),
@@ -19,11 +28,11 @@ const modelSchema = z.object({
   capabilities: z.array(z.string().trim().min(1)).default([]),
   contextWindow: z.number().int().positive().optional(),
   maxOutput: z.number().int().positive().optional(),
-  pricing: pricingSchema,
+  pricing: modelPricingSchema,
 })
 
 export const catalogSchema = z.object({
-  version: z.literal(2),
+  version: z.literal(3),
   updatedAt: z.iso.date(),
   currency: z.enum(['USD', 'CNY']).default('USD'),
   priceUnit: z.enum(['MTok', 'KTok']).default('MTok'),

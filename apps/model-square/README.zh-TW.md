@@ -10,18 +10,20 @@
 
 | 變數 | 必填 | 預設值 | 說明 |
 | --- | --- | --- | --- |
-| `MODEL_IDS` | 是 | Compose 中提供範例 | 以逗號或換行分隔的模型 ID，頁面依字母順序顯示 |
+| `MODEL_IDS` | 是 | Compose 中提供範例 | 以逗號或換行分隔的模型 ID |
+| `PRESERVE_MODEL_ID_ORDER` | 否 | `false` | 設為 `true` 時依 `MODEL_IDS` 中的順序顯示；否則依模型 ID 的字母順序顯示 |
 | `NOTICE_MESSAGE` | 否 | Compose 中提供範例 | 顯示於頁面頂端的一則通知，留空則不顯示 |
 | `CACHE_FILE` | 否 | `./data/catalog-cache.json` | 中繼資料快取檔案 |
 
 範例：
 
 ```env
-MODEL_IDS=gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna
-NOTICE_MESSAGE=Model availability and pricing are subject to change.
+MODEL_IDS="gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna"
+PRESERVE_MODEL_ID_ORDER="false"
+NOTICE_MESSAGE="Model availability and pricing are subject to change."
 ```
 
-服務啟動時會立即與 models.dev 同步，之後每天在本機時間 00:00 同步一次。範例 Compose 將 `TZ` 設為 `Asia/Singapore`；如需使用其他時區，請修改此環境變數。瀏覽器造訪不會觸發同步。未收錄的 ID 仍會顯示，並使用通用圖示與中繼資料缺漏提示。
+服務啟動時會立即與 models.dev 同步，之後每天在本機時間 00:00 同步一次。範例 Compose 將 `TZ` 設為 `Asia/Singapore`；如需使用其他時區，請修改此環境變數。瀏覽器造訪不會觸發同步。未收錄的 ID 仍會顯示，並使用通用圖示與中繼資料缺漏提示。卡片會顯示基礎價格，以及 models.dev 回傳的上下文階梯價格。
 
 ## 本機開發
 

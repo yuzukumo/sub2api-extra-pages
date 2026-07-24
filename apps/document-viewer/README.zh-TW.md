@@ -53,7 +53,7 @@ npm install
 npm run dev
 ```
 
-頁面位於 `http://localhost:4174/`，本機 API 監聽連接埠 `3000`。
+頁面位於 `http://localhost:4174/`。在開發環境中，Vite 會直接提供 `content` 內的檔案，不會啟動本機 API。
 
 執行完整檢查：
 
@@ -76,10 +76,8 @@ docker compose up -d
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
-範例 Compose 將 `127.0.0.1:6002` 對應至容器連接埠 `3000`，並將 `./content` 以唯讀方式掛載至 `/app/content`。如需使用其他監聽位址或連接埠，請修改 `docker-compose.yml` 中的連接埠對應。
+Nginx 負責提供靜態頁面與 Markdown 檔案。範例 Compose 將 `127.0.0.1:6002` 對應至容器連接埠 `3000`，並將 `./content` 以唯讀方式掛載至 `/usr/share/nginx/html/content`。如需使用其他監聽位址或連接埠，請修改 `docker-compose.yml` 中的連接埠對應。
 
 此處使用 bind mount，而不是 Docker 命名卷，因此不會出現在 `docker volume ls` 中。您可以在 `docker inspect sub2apiextra-documentviewer` 輸出的 `Mounts` 中查看掛載詳細資料。
-
-範例 Compose 將 `TZ` 環境變數設為 `Asia/Singapore`。如需使用其他時區，請在 `docker-compose.yml` 中修改。
 
 頁面預設跟隨系統主題，手動選擇的主題與語言會儲存在瀏覽器中。介面與文件支援英文、俄文、簡體中文和繁體中文（台灣）。只有當瀏覽器偏好的語言受到支援時才會採用，否則使用英文。

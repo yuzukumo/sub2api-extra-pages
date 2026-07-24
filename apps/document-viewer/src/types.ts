@@ -1,5 +1,15 @@
-export interface NavigationItem {
+export type UiLocale = 'en-US' | 'zh-CN' | 'zh-TW' | 'ru-RU'
+
+export interface DocumentManifestItem {
   file: string
+}
+
+export interface DocumentManifest {
+  title?: Record<UiLocale, string>
+  documents: DocumentManifestItem[]
+}
+
+export interface NavigationItem extends DocumentManifestItem {
   title: string
 }
 
@@ -10,10 +20,6 @@ export interface NavigationPayload {
 
 export interface DocumentPayload {
   file: string
-  title: string
   content: string
   assetBase: string
-  updatedAt: string
 }
-
-export type UiLocale = 'en-US' | 'zh-CN' | 'zh-TW' | 'ru-RU'

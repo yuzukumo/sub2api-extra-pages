@@ -23,7 +23,19 @@ const fixture: ModelsDevResponse = {
         tool_call: true,
         modalities: { input: ['text', 'image'], output: ['text'] },
         limit: { context: 400000, output: 128000 },
-        cost: { input: 2.5, output: 15, cache_read: 0.25, cache_write: 3.75 },
+        cost: {
+          input: 2.5,
+          output: 15,
+          cache_read: 0.25,
+          cache_write: 3.75,
+          tiers: [{
+            input: 5,
+            output: 22.5,
+            cache_read: 0.5,
+            cache_write: 6.25,
+            tier: { type: 'context', size: 272000 },
+          }],
+        },
       },
     },
   },
@@ -43,7 +55,16 @@ describe('models.dev normalization', () => {
       icon: 'openai',
       capabilities: ['text', 'vision', 'reasoning', 'toolCall'],
       contextWindow: 400000,
-      pricing: { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.75 },
+      pricing: {
+        input: 2.5,
+        output: 15,
+        cacheRead: 0.25,
+        cacheWrite: 3.75,
+        tiers: [{
+          contextWindow: 272000,
+          pricing: { input: 5, output: 22.5, cacheRead: 0.5, cacheWrite: 6.25 },
+        }],
+      },
     })
   })
 
@@ -72,6 +93,32 @@ describe('models.dev normalization', () => {
     const model = normalizeCatalog(zeroLimits, ['gpt-image']).models[0]
     expect(model.contextWindow).toBeUndefined()
     expect(model.maxOutput).toBeUndefined()
+  })
+
+  it('keeps only valid context price tiers in ascending threshold order', () => {
+    const catalog = normalizeCatalog({
+      openai: {
+        id: 'openai',
+        models: {
+          'gpt-tiered': {
+            id: 'gpt-tiered',
+            cost: {
+              tiers: [
+                { input: 3, tier: { type: 'context', size: 400000 } },
+                { input: 2, tier: { type: 'context', size: 200000 } },
+                { input: 1, tier: { type: 'requests', size: 1 } },
+                { tier: { type: 'context', size: 500000 } },
+              ],
+            },
+          },
+        },
+      },
+    }, ['gpt-tiered'])
+
+    expect(catalog.models[0]?.pricing.tiers).toEqual([
+      { contextWindow: 200000, pricing: { input: 2 } },
+      { contextWindow: 400000, pricing: { input: 3 } },
+    ])
   })
 
   it('shows the model creator instead of a gateway provider', () => {

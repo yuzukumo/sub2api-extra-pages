@@ -53,7 +53,7 @@ npm install
 npm run dev
 ```
 
-The web interface is available at `http://localhost:4174/`, and the local API listens on port `3000`.
+The web interface is available at `http://localhost:4174/`. Vite serves the files in `content` directly during development; no local API is started.
 
 Run all checks with:
 
@@ -76,10 +76,8 @@ To build from source instead, run:
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
-The provided Compose file maps `127.0.0.1:6002` to port `3000` in the container and mounts `./content` at `/app/content` in read-only mode. Change the host address or port mapping in `docker-compose.yml` when needed.
+Nginx serves the static interface and Markdown files. The provided Compose file maps `127.0.0.1:6002` to port `3000` in the container and mounts `./content` at `/usr/share/nginx/html/content` in read-only mode. Change the host address or port mapping in `docker-compose.yml` when needed.
 
 This is a bind mount rather than a named Docker volume, so it does not appear in `docker volume ls`. Its details are available under `Mounts` in `docker inspect sub2apiextra-documentviewer`.
-
-The Compose example sets the `TZ` environment variable to `Asia/Singapore`. Change it in `docker-compose.yml` to use another time zone.
 
 The page follows the system theme by default. Manual theme and language choices are stored in the browser. Supported interface and document languages are English, Russian, Simplified Chinese, and Traditional Chinese (Taiwan). Browser preferences are used only when they match a supported language; otherwise, English is used.

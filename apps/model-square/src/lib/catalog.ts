@@ -34,12 +34,6 @@ export function filterModels(
   })
 }
 
-export function sortModelsById(models: CatalogModel[]): CatalogModel[] {
-  return [...models].sort((a, b) =>
-    a.id.localeCompare(b.id, 'en', { sensitivity: 'base' }),
-  )
-}
-
 export function formatTokenCount(value?: number): string {
   if (!value) return '-'
   if (value >= 1_000_000) return `${value / 1_000_000}M`

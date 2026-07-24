@@ -33,30 +33,46 @@ import { useThemePreference } from './hooks/useThemePreference'
 import { messages } from './i18n'
 import {
   extractHeadings,
+  getDocumentAssetBase,
   getDocumentTitle,
+  resolveDocumentUrl,
 } from './lib/document'
-import { documentSchema, navigationSchema } from './schemas'
+import { documentManifestSchema } from './schemas'
 import type { DocumentHeading } from './lib/document'
-import type { DocumentPayload, NavigationPayload, UiLocale } from './types'
+import type { DocumentManifest, DocumentPayload, NavigationPayload, UiLocale } from './types'
 
 const { Text } = Typography
 
-async function loadNavigation(locale: UiLocale): Promise<NavigationPayload> {
-  const response = await fetch(
-    `${import.meta.env.BASE_URL}api/navigation?locale=${encodeURIComponent(locale)}`,
-    { cache: 'no-cache' },
-  )
-  if (!response.ok) throw new Error(`Navigation request failed (${response.status})`)
-  return navigationSchema.parse(await response.json())
+async function loadManifest(): Promise<DocumentManifest> {
+  const response = await fetch(resolveDocumentUrl('documents.json'), { cache: 'no-cache' })
+  if (!response.ok) throw new Error(`Document manifest request failed (${response.status})`)
+  return documentManifestSchema.parse(await response.json())
 }
 
 async function loadDocument(file: string, locale: UiLocale): Promise<DocumentPayload> {
-  const response = await fetch(
-    `${import.meta.env.BASE_URL}api/document?file=${encodeURIComponent(file)}&locale=${encodeURIComponent(locale)}`,
-    { cache: 'no-cache' },
-  )
+  const response = await fetch(resolveDocumentUrl(file, locale), { cache: 'no-cache' })
   if (!response.ok) throw new Error(`Document request failed (${response.status})`)
-  return documentSchema.parse(await response.json())
+
+  return {
+    file,
+    content: await response.text(),
+    assetBase: getDocumentAssetBase(locale, file),
+  }
+}
+
+async function loadNavigation(locale: UiLocale): Promise<NavigationPayload> {
+  const manifest = await loadManifest()
+  const documents = await Promise.all(manifest.documents.map(async ({ file }) => {
+    const document = await loadDocument(file, locale)
+    const title = getDocumentTitle(extractHeadings(document.content))
+    if (!title) throw new Error(`Document must contain a level-one heading: ${file}`)
+    return { file, title }
+  }))
+
+  return {
+    title: manifest.title?.[locale],
+    documents,
+  }
 }
 
 interface NavigationMenuProps {
@@ -159,7 +175,7 @@ function ReaderPage({
   }, [effectiveFile, replaceDocument, selectedFile])
 
   useEffect(() => {
-    const documentTitle = getDocumentTitle(headings) ?? currentDocument?.title
+    const documentTitle = getDocumentTitle(headings)
     document.title = [documentTitle, navigation?.title].filter(Boolean).join(' - ') || 'Documentation'
   }, [currentDocument, headings, navigation])
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterModels, formatPrice, formatPriceUnit, formatTokenCount, sortModelsById } from './catalog'
+import { filterModels, formatPrice, formatPriceUnit, formatTokenCount } from './catalog'
 import type { CatalogModel } from '../types/catalog'
 
 const models: CatalogModel[] = [
@@ -29,9 +29,8 @@ describe('catalog helpers', () => {
     expect(filterModels(models, { query: '', provider: 'Provider A' })).toEqual([models[1]])
   })
 
-  it('sorts by model id without mutating input', () => {
-    expect(sortModelsById(models).map((model) => model.id)).toEqual(['model-a', 'model-b'])
-    expect(models[0]?.id).toBe('model-b')
+  it('preserves catalog order after filtering', () => {
+    expect(filterModels(models, { query: '' }).map((model) => model.id)).toEqual(['model-b', 'model-a'])
   })
 
   it('formats token counts and catalog prices', () => {

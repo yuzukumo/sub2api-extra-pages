@@ -3,6 +3,18 @@ export interface ModelsDevCost {
   output?: number
   cache_read?: number
   cache_write?: number
+  tiers?: ModelsDevCostTier[]
+}
+
+export interface ModelsDevCostTier {
+  input?: number
+  output?: number
+  cache_read?: number
+  cache_write?: number
+  tier?: {
+    type?: string
+    size?: number
+  }
 }
 
 export interface ModelsDevReasoningOption {
@@ -41,6 +53,18 @@ export interface ModelsDevProvider {
 
 export type ModelsDevResponse = Record<string, ModelsDevProvider>
 
+export interface CatalogPricing {
+  input?: number
+  output?: number
+  cacheRead?: number
+  cacheWrite?: number
+}
+
+export interface CatalogPricingTier {
+  contextWindow: number
+  pricing: CatalogPricing
+}
+
 export interface CatalogModel {
   id: string
   name: string
@@ -50,16 +74,13 @@ export interface CatalogModel {
   capabilities: string[]
   contextWindow?: number
   maxOutput?: number
-  pricing: {
-    input?: number
-    output?: number
-    cacheRead?: number
-    cacheWrite?: number
+  pricing: CatalogPricing & {
+    tiers?: CatalogPricingTier[]
   }
 }
 
 export interface CatalogResponse {
-  version: 2
+  version: 3
   updatedAt: string
   currency: 'USD'
   priceUnit: 'MTok'

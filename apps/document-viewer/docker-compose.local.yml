@@ -6,7 +6,5 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:6002:3000"
-    environment:
-      TZ: Asia/Singapore
     volumes:
-      - ./content:/app/content:ro
+      - ./content:/usr/share/nginx/html/content:ro

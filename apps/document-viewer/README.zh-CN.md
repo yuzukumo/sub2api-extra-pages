@@ -53,7 +53,7 @@ npm install
 npm run dev
 ```
 
-页面地址为 `http://localhost:4174/`，本地 API 监听端口 `3000`。
+页面地址为 `http://localhost:4174/`。开发环境中，Vite 会直接提供 `content` 中的文件，不会启动本地 API。
 
 运行完整校验：
 
@@ -76,10 +76,8 @@ docker compose up -d
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
-示例 Compose 将 `127.0.0.1:6002` 映射到容器端口 `3000`，并将 `./content` 以只读方式挂载到 `/app/content`。如需使用其他监听地址或端口，请修改 `docker-compose.yml` 中的端口映射。
+Nginx 负责提供静态页面和 Markdown 文件。示例 Compose 将 `127.0.0.1:6002` 映射到容器端口 `3000`，并将 `./content` 以只读方式挂载到 `/usr/share/nginx/html/content`。如需使用其他监听地址或端口，请修改 `docker-compose.yml` 中的端口映射。
 
 此处使用 bind mount，而不是 Docker 命名卷，因此不会出现在 `docker volume ls` 中。可以在 `docker inspect sub2apiextra-documentviewer` 输出的 `Mounts` 中查看挂载详情。
-
-示例 Compose 将 `TZ` 环境变量设为 `Asia/Singapore`。如需使用其他时区，请在 `docker-compose.yml` 中修改。
 
 页面默认跟随系统主题，手动选择的主题和语言会保存在浏览器中。界面和文档支持英语、俄语、简体中文和繁体中文（台湾）。浏览器语言偏好仅在属于支持语言时采用，否则使用英语。

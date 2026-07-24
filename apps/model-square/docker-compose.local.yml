@@ -9,4 +9,5 @@ services:
     environment:
       TZ: Asia/Singapore
       MODEL_IDS: "gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna"
+      PRESERVE_MODEL_ID_ORDER: "false"
       NOTICE_MESSAGE: "Model availability and pricing are subject to change."

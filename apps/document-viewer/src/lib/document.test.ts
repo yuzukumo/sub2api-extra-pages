@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { buildAnchorItems, extractHeadings, getDocumentTitle, resolveContentUrl } from './document'
+import {
+  buildAnchorItems,
+  extractHeadings,
+  getDocumentAssetBase,
+  getDocumentTitle,
+  isSafeDocumentPath,
+  resolveContentUrl,
+  resolveDocumentUrl,
+} from './document'
 
 describe('document helpers', () => {
   it('extracts unique heading anchors and builds a hierarchy', () => {
@@ -18,10 +26,21 @@ describe('document helpers', () => {
     expect(getDocumentTitle(headings)).toBe('Guide')
   })
 
-  it('maps relative assets to the mounted content directory', () => {
-    expect(resolveContentUrl('./images/guide.png')).toContain('content/images/guide.png')
-    expect(resolveContentUrl('./diagram.png', 'guides/')).toContain('content/guides/diagram.png')
+  it('maps relative assets to the configured content location', () => {
+    expect(resolveContentUrl('./images/guide.png')).toContain('images/guide.png')
+    expect(resolveContentUrl('./diagram.png', 'guides/')).toContain('guides/diagram.png')
+    expect(resolveDocumentUrl('documents.json')).toContain('documents.json')
+    expect(resolveDocumentUrl('introduction.md', 'en-US')).toContain('en-US/introduction.md')
     expect(resolveContentUrl('https://example.com/guide.png')).toBe('https://example.com/guide.png')
     expect(resolveContentUrl('#start')).toBe('#start')
+  })
+
+  it('accepts only document paths that stay inside a locale directory', () => {
+    expect(isSafeDocumentPath('guides/start.md')).toBe(true)
+    expect(isSafeDocumentPath('../start.md')).toBe(false)
+    expect(isSafeDocumentPath('/start.md')).toBe(false)
+    expect(isSafeDocumentPath('guides/../start.md')).toBe(false)
+    expect(isSafeDocumentPath('guides\\start.md')).toBe(false)
+    expect(getDocumentAssetBase('en-US', 'guides/start.md')).toBe('en-US/guides/')
   })
 })

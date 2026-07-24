@@ -18,7 +18,7 @@ export class CatalogService {
     try {
       const cached = JSON.parse(await readFile(this.options.cacheFile, 'utf8')) as CatalogResponse
       const cachedIds = cached.models?.map((model) => model.id)
-      const matchesConfiguration = cached.version === 2 &&
+      const matchesConfiguration = cached.version === 3 &&
         cachedIds?.length === this.options.modelIds.length &&
         cachedIds.every((id, index) => id === this.options.modelIds[index])
       if (matchesConfiguration) this.catalog = cached

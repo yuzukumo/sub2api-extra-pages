@@ -13,7 +13,7 @@ import {
 } from 'antd'
 import { formatPrice, formatPriceUnit, formatTokenCount } from '../lib/catalog'
 import { messages } from '../i18n'
-import type { CatalogModel, Locale, ModelCatalog } from '../types/catalog'
+import type { CatalogModel, Locale, ModelCatalog, ModelPriceFields } from '../types/catalog'
 import { ModelIcon } from './ModelIcon'
 
 const { Paragraph, Text, Title } = Typography
@@ -22,6 +22,48 @@ interface ModelCardProps {
   catalog: ModelCatalog
   locale: Locale
   model: CatalogModel
+}
+
+interface PriceGridProps {
+  catalog: ModelCatalog
+  copy: (typeof messages)[Locale]
+  pricing: ModelPriceFields
+}
+
+function hasPrices(pricing: ModelPriceFields): boolean {
+  return [
+    pricing.input,
+    pricing.output,
+    pricing.cacheRead,
+    pricing.cacheWrite,
+  ].some((value) => value !== undefined)
+}
+
+function PriceGrid({ catalog, copy, pricing }: PriceGridProps) {
+  const { token } = theme.useToken()
+  const prices = [
+    { label: copy.inputPrice, value: formatPrice(pricing.input, catalog) },
+    { label: copy.outputPrice, value: formatPrice(pricing.output, catalog) },
+    { label: copy.cacheRead, value: formatPrice(pricing.cacheRead, catalog) },
+    { label: copy.cacheWrite, value: formatPrice(pricing.cacheWrite, catalog) },
+  ]
+
+  return (
+    <Row gutter={[token.paddingSM, token.paddingSM]}>
+      {prices.map((price) => (
+        <Col span={12} key={price.label}>
+          <Statistic
+            title={price.label}
+            value={price.value}
+            styles={{
+              title: { color: token.colorTextSecondary },
+              content: { lineHeight: token.lineHeightLG },
+            }}
+          />
+        </Col>
+      ))}
+    </Row>
+  )
 }
 
 export function ModelCard({ catalog, locale, model }: ModelCardProps) {
@@ -44,12 +86,7 @@ export function ModelCard({ catalog, locale, model }: ModelCardProps) {
       ? [{ key: 'max-output', label: copy.maxOutput, children: <Text strong>{formatTokenCount(model.maxOutput)}</Text> }]
       : []),
   ]
-  const prices = [
-    { label: copy.inputPrice, value: formatPrice(model.pricing.input, catalog) },
-    { label: copy.outputPrice, value: formatPrice(model.pricing.output, catalog) },
-    { label: copy.cacheRead, value: formatPrice(model.pricing.cacheRead, catalog) },
-    { label: copy.cacheWrite, value: formatPrice(model.pricing.cacheWrite, catalog) },
-  ]
+  const priceTiers = model.pricing.tiers ?? []
 
   return (
     <Card
@@ -112,20 +149,22 @@ export function ModelCard({ catalog, locale, model }: ModelCardProps) {
             <Text type="secondary">{formatPriceUnit()}</Text>
           </Space>
         </Divider>
-        <Row gutter={[token.paddingSM, token.paddingSM]}>
-          {prices.map((price) => (
-            <Col span={12} key={price.label}>
-              <Statistic
-                title={price.label}
-                value={price.value}
-                styles={{
-                  title: { color: token.colorTextSecondary },
-                  content: { lineHeight: token.lineHeightLG },
-                }}
-              />
-            </Col>
-          ))}
-        </Row>
+        {hasPrices(model.pricing) && <PriceGrid catalog={catalog} copy={copy} pricing={model.pricing} />}
+        {priceTiers.map((tier) => (
+          <Flex key={tier.contextWindow} vertical gap={token.paddingXS}>
+            <Divider
+              plain
+              size="small"
+              titlePlacement="start"
+              style={{ margin: `${token.paddingSM}px 0 0` }}
+            >
+              <Text type="secondary">
+                {copy.pricingOverContext(formatTokenCount(tier.contextWindow))}
+              </Text>
+            </Divider>
+            <PriceGrid catalog={catalog} copy={copy} pricing={tier.pricing} />
+          </Flex>
+        ))}
       </Flex>
     </Card>
   )

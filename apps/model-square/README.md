@@ -10,18 +10,20 @@ The service has no configuration page, administration API, or write API. The lis
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `MODEL_IDS` | Yes | Example provided in Compose | Comma- or newline-separated model IDs, displayed in alphabetical order |
+| `MODEL_IDS` | Yes | Example provided in Compose | Comma- or newline-separated model IDs |
+| `PRESERVE_MODEL_ID_ORDER` | No | `false` | When `true`, preserve the order in `MODEL_IDS`; otherwise, sort by model ID alphabetically |
 | `NOTICE_MESSAGE` | No | Example provided in Compose | A single notice displayed at the top of the page; leave empty to hide it |
 | `CACHE_FILE` | No | `./data/catalog-cache.json` | Metadata cache file |
 
 Example:
 
 ```env
-MODEL_IDS=gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna
-NOTICE_MESSAGE=Model availability and pricing are subject to change.
+MODEL_IDS="gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna"
+PRESERVE_MODEL_ID_ORDER="false"
+NOTICE_MESSAGE="Model availability and pricing are subject to change."
 ```
 
-The service synchronizes with models.dev immediately at startup and then every day at 00:00 local time. The Compose example sets `TZ` to `Asia/Singapore`; change this environment variable to use another time zone. Browser visits do not trigger synchronization. Unknown IDs remain visible with a generic icon and a metadata-unavailable message.
+The service synchronizes with models.dev immediately at startup and then every day at 00:00 local time. The Compose example sets `TZ` to `Asia/Singapore`; change this environment variable to use another time zone. Browser visits do not trigger synchronization. Unknown IDs remain visible with a generic icon and a metadata-unavailable message. Cards display the base prices and any context-tier prices returned by models.dev.
 
 ## Local development
 
