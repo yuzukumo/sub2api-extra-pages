@@ -1,4 +1,4 @@
-import type { UiLocale } from './types'
+import { uiLocales, type UiLocale } from './types'
 
 interface Copy {
   appearance: string
@@ -20,6 +20,24 @@ export const localeOptions: Array<{ label: string; value: UiLocale }> = [
   { label: '繁體中文（台灣）', value: 'zh-TW' },
   { label: 'Русский', value: 'ru-RU' },
 ]
+
+export function getAvailableLocales(title?: Partial<Record<UiLocale, string>>): UiLocale[] {
+  const configuredLocales = uiLocales.filter((locale) => title?.[locale])
+  return configuredLocales.length > 0 ? configuredLocales : ['en-US']
+}
+
+export function getLocaleOptions(locales: readonly UiLocale[]) {
+  return localeOptions.filter((option) => locales.includes(option.value))
+}
+
+export function resolveAvailableLocale(
+  preferredLocale: UiLocale,
+  availableLocales: readonly UiLocale[],
+): UiLocale {
+  if (availableLocales.includes(preferredLocale)) return preferredLocale
+  if (availableLocales.includes('en-US')) return 'en-US'
+  return availableLocales[0] ?? 'en-US'
+}
 
 export const messages: Record<UiLocale, Copy> = {
   'en-US': {

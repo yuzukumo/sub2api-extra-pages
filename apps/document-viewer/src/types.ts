@@ -1,11 +1,13 @@
-export type UiLocale = 'en-US' | 'zh-CN' | 'zh-TW' | 'ru-RU'
+export const uiLocales = ['en-US', 'zh-CN', 'zh-TW', 'ru-RU'] as const
+
+export type UiLocale = (typeof uiLocales)[number]
 
 export interface DocumentManifestItem {
   file: string
 }
 
 export interface DocumentManifest {
-  title?: Record<UiLocale, string>
+  title?: Partial<Record<UiLocale, string>>
   documents: DocumentManifestItem[]
 }
 

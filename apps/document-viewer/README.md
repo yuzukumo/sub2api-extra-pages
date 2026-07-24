@@ -8,7 +8,7 @@ The service has no editor, sign-in flow, collaboration features, or administrati
 
 ## Document configuration
 
-The manifest has a fixed path: [`content/documents.json`](content/documents.json). The service requires this file and does not allow its path to be changed through an environment variable. The order of the `documents` array determines the order in the left navigation.
+The manifest has a fixed path: [`content/documents.json`](content/documents.json). The service requires this file and does not allow its path to be changed through an environment variable. The order of the `documents` array determines the order in the left navigation. The keys in `title` define the document languages shown in the language selector, so configure only the locales you provide.
 
 ```json
 {
@@ -29,7 +29,7 @@ Each entry contains only `file`. It is the Markdown path relative to each locale
 
 Changes to files or ordering take effect after a browser refresh. There is no administration page or write API.
 
-Every document must have the same relative path in all supported locale directories:
+Every document must have the same relative path in every locale directory configured in `title`:
 
 ```text
 content/
@@ -80,4 +80,4 @@ Nginx serves the static interface and Markdown files. The provided Compose file 
 
 This is a bind mount rather than a named Docker volume, so it does not appear in `docker volume ls`. Its details are available under `Mounts` in `docker inspect sub2apiextra-documentviewer`.
 
-The page follows the system theme by default. Manual theme and language choices are stored in the browser. Supported interface and document languages are English, Russian, Simplified Chinese, and Traditional Chinese (Taiwan). Browser preferences are used only when they match a supported language; otherwise, English is used.
+The page follows the system theme by default. Manual theme and language choices are stored in the browser. The interface supports English, Russian, Simplified Chinese, and Traditional Chinese (Taiwan); the language selector only shows locales configured in `title`. Browser preferences are used when that locale is configured; otherwise, English is used when available, or the first configured locale.

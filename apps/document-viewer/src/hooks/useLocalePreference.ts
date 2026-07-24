@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { detectLocale } from '../i18n'
+import { detectLocale, resolveAvailableLocale } from '../i18n'
 import type { UiLocale } from '../types'
 
 const STORAGE_KEY = 'sub2api-document-viewer.locale'
@@ -15,15 +15,20 @@ function readStoredLocale(): UiLocale | undefined {
   }
 }
 
-export function useLocalePreference(): [UiLocale, (locale: UiLocale) => void] {
-  const [locale, setLocale] = useState<UiLocale>(() => {
+export function useLocalePreference(
+  availableLocales?: readonly UiLocale[],
+): [UiLocale, (locale: UiLocale) => void] {
+  const [preferredLocale, setPreferredLocale] = useState<UiLocale>(() => {
     const stored = readStoredLocale()
     if (stored) return stored
     return detectLocale(navigator.languages?.length ? navigator.languages : [navigator.language])
   })
+  const locale = availableLocales
+    ? resolveAvailableLocale(preferredLocale, availableLocales)
+    : preferredLocale
 
   const updateLocale = useCallback((nextLocale: UiLocale) => {
-    setLocale(nextLocale)
+    setPreferredLocale(nextLocale)
     try {
       window.localStorage.setItem(STORAGE_KEY, nextLocale)
     } catch {

@@ -30,7 +30,7 @@ import { ThemeSelect } from './components/ThemeSelect'
 import { useDocumentSelection } from './hooks/useDocumentSelection'
 import { useLocalePreference } from './hooks/useLocalePreference'
 import { useThemePreference } from './hooks/useThemePreference'
-import { messages } from './i18n'
+import { getAvailableLocales, messages } from './i18n'
 import {
   extractHeadings,
   getDocumentAssetBase,
@@ -60,8 +60,10 @@ async function loadDocument(file: string, locale: UiLocale): Promise<DocumentPay
   }
 }
 
-async function loadNavigation(locale: UiLocale): Promise<NavigationPayload> {
-  const manifest = await loadManifest()
+async function loadNavigation(
+  manifest: DocumentManifest,
+  locale: UiLocale,
+): Promise<NavigationPayload> {
   const documents = await Promise.all(manifest.documents.map(async ({ file }) => {
     const document = await loadDocument(file, locale)
     const title = getDocumentTitle(extractHeadings(document.content))
@@ -133,16 +135,26 @@ function NavigationMenu({
 }
 
 interface ReaderPageProps {
+  availableLocales?: UiLocale[]
   dark: boolean
   locale: UiLocale
+  manifest?: DocumentManifest
+  manifestError: boolean
+  manifestLoading: boolean
+  onManifestRetry: () => void
   onLocaleChange: (locale: UiLocale) => void
   themePreference: ReturnType<typeof useThemePreference>[0]
   onThemeChange: ReturnType<typeof useThemePreference>[1]
 }
 
 function ReaderPage({
+  availableLocales,
   dark,
   locale,
+  manifest,
+  manifestError,
+  manifestLoading,
+  onManifestRetry,
   onLocaleChange,
   themePreference,
   onThemeChange,
@@ -153,8 +165,9 @@ function ReaderPage({
   const [navigationOpen, setNavigationOpen] = useState(false)
   const { selectedFile, selectDocument, replaceDocument } = useDocumentSelection()
   const navigationQuery = useQuery({
-    queryKey: ['navigation', locale],
-    queryFn: () => loadNavigation(locale),
+    queryKey: ['navigation', manifest, locale],
+    queryFn: () => loadNavigation(manifest!, locale),
+    enabled: Boolean(manifest),
   })
   const navigation = navigationQuery.data
   const selectedExists = navigation?.documents.some((document) => document.file === selectedFile)
@@ -198,12 +211,18 @@ function ReaderPage({
       )}
       <Space align="center" size={12} wrap>
         <ThemeSelect locale={locale} value={themePreference} onChange={onThemeChange} />
-        <LanguageSelect locale={locale} onChange={onLocaleChange} />
+        {availableLocales && (
+          <LanguageSelect
+            availableLocales={availableLocales}
+            locale={locale}
+            onChange={onLocaleChange}
+          />
+        )}
       </Space>
     </Flex>
   )
 
-  if (navigationQuery.isError) {
+  if (manifestError || navigationQuery.isError) {
     return (
       <Flex vertical gap={token.paddingMD} style={{ minHeight: '100vh', padding: token.paddingMD }}>
         {toolbar}
@@ -211,7 +230,11 @@ function ReaderPage({
           status="error"
           title={copy.documentUnavailable}
           subTitle={copy.documentUnavailableHint}
-          extra={<Button onClick={() => navigationQuery.refetch()}>{copy.retry}</Button>}
+          extra={(
+            <Button onClick={() => (manifestError ? onManifestRetry() : navigationQuery.refetch())}>
+              {copy.retry}
+            </Button>
+          )}
         />
       </Flex>
     )
@@ -231,7 +254,7 @@ function ReaderPage({
         {toolbar}
       </div>
 
-      {navigationQuery.isLoading ? (
+      {manifestLoading || navigationQuery.isLoading ? (
         <div style={{ width: '100%', maxWidth: 760, marginInline: 'auto' }}>
           <Skeleton active title paragraph={{ rows: 14 }} />
         </div>
@@ -315,7 +338,11 @@ function ReaderPage({
 }
 
 export default function App() {
-  const [locale, setLocale] = useLocalePreference()
+  const manifestQuery = useQuery({ queryKey: ['manifest'], queryFn: loadManifest })
+  const availableLocales = manifestQuery.data
+    ? getAvailableLocales(manifestQuery.data.title)
+    : undefined
+  const [locale, setLocale] = useLocalePreference(availableLocales)
   const [themePreference, setThemePreference, dark] = useThemePreference()
 
   const palette = dark
@@ -384,8 +411,13 @@ export default function App() {
     >
       <AntApp>
         <ReaderPage
+          availableLocales={availableLocales}
           dark={dark}
           locale={locale}
+          manifest={manifestQuery.data}
+          manifestError={manifestQuery.isError}
+          manifestLoading={manifestQuery.isLoading}
+          onManifestRetry={() => manifestQuery.refetch()}
           onLocaleChange={setLocale}
           themePreference={themePreference}
           onThemeChange={setThemePreference}

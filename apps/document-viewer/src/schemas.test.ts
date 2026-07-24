@@ -15,4 +15,23 @@ describe('document manifest schema', () => {
       documents: [{ file: '../start.md' }],
     })).toThrow('Document paths must stay inside a locale directory')
   })
+
+  it('allows a subset of localized titles', () => {
+    const manifest = documentManifestSchema.parse({
+      title: {
+        'en-US': 'Documentation',
+        'zh-CN': '服务文档',
+      },
+      documents: [{ file: 'guide/start.md' }],
+    })
+
+    expect(manifest.title).toEqual({
+      'en-US': 'Documentation',
+      'zh-CN': '服务文档',
+    })
+    expect(() => documentManifestSchema.parse({
+      title: {},
+      documents: [{ file: 'guide/start.md' }],
+    })).toThrow('At least one localized title is required')
+  })
 })

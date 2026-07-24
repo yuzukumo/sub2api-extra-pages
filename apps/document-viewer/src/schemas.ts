@@ -8,10 +8,12 @@ const documentPathSchema = z.string()
 
 export const documentManifestSchema = z.object({
   title: z.object({
-    'en-US': z.string().trim().min(1),
-    'zh-CN': z.string().trim().min(1),
-    'zh-TW': z.string().trim().min(1),
-    'ru-RU': z.string().trim().min(1),
+    'en-US': z.string().trim().min(1).optional(),
+    'zh-CN': z.string().trim().min(1).optional(),
+    'zh-TW': z.string().trim().min(1).optional(),
+    'ru-RU': z.string().trim().min(1).optional(),
+  }).refine((title) => Object.keys(title).length > 0, {
+    message: 'At least one localized title is required when title is configured',
   }).optional(),
   documents: z.array(z.object({
     file: documentPathSchema,
