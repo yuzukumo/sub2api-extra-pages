@@ -13,7 +13,13 @@ import {
 } from 'antd'
 import { formatPrice, formatPriceUnit, formatTokenCount } from '../lib/catalog'
 import { messages } from '../i18n'
-import type { CatalogModel, Locale, ModelCatalog, ModelPriceFields } from '../types/catalog'
+import type {
+  CatalogModel,
+  Locale,
+  ModelCatalog,
+  ModelPriceFields,
+  ModelPricingTier,
+} from '../types/catalog'
 import { ModelIcon } from './ModelIcon'
 
 const { Paragraph, Text, Title } = Typography
@@ -28,6 +34,7 @@ interface PriceGridProps {
   catalog: ModelCatalog
   copy: (typeof messages)[Locale]
   pricing: ModelPriceFields
+  tiers: ModelPricingTier[]
 }
 
 function hasPrices(pricing: ModelPriceFields): boolean {
@@ -39,29 +46,43 @@ function hasPrices(pricing: ModelPriceFields): boolean {
   ].some((value) => value !== undefined)
 }
 
-function PriceGrid({ catalog, copy, pricing }: PriceGridProps) {
+function PriceGrid({ catalog, copy, pricing, tiers }: PriceGridProps) {
   const { token } = theme.useToken()
   const prices = [
-    { label: copy.inputPrice, value: formatPrice(pricing.input, catalog) },
-    { label: copy.outputPrice, value: formatPrice(pricing.output, catalog) },
-    { label: copy.cacheRead, value: formatPrice(pricing.cacheRead, catalog) },
-    { label: copy.cacheWrite, value: formatPrice(pricing.cacheWrite, catalog) },
+    { label: copy.inputPrice, value: pricing.input, key: 'input' as const },
+    { label: copy.outputPrice, value: pricing.output, key: 'output' as const },
+    { label: copy.cacheRead, value: pricing.cacheRead, key: 'cacheRead' as const },
+    { label: copy.cacheWrite, value: pricing.cacheWrite, key: 'cacheWrite' as const },
   ]
 
   return (
     <Row gutter={[token.paddingSM, token.paddingSM]}>
-      {prices.map((price) => (
-        <Col span={12} key={price.label}>
-          <Statistic
-            title={price.label}
-            value={price.value}
-            styles={{
-              title: { color: token.colorTextSecondary },
-              content: { lineHeight: token.lineHeightLG },
-            }}
-          />
-        </Col>
-      ))}
+      {prices.map((price) => {
+        const tierPrices = tiers
+          .map((tier) => tier.pricing[price.key])
+          .filter((value) => value !== undefined)
+          .map((value) => formatPrice(value, catalog))
+
+        return (
+          <Col span={12} key={price.label}>
+            <Statistic
+              title={price.label}
+              value={formatPrice(price.value, catalog)}
+              suffix={
+                tierPrices.length > 0 && (
+                  <Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
+                    {tierPrices.join(' ')}
+                  </Text>
+                )
+              }
+              styles={{
+                title: { color: token.colorTextSecondary },
+                content: { lineHeight: token.lineHeightLG },
+              }}
+            />
+          </Col>
+        )
+      })}
     </Row>
   )
 }
@@ -87,6 +108,10 @@ export function ModelCard({ catalog, locale, model }: ModelCardProps) {
       : []),
   ]
   const priceTiers = model.pricing.tiers ?? []
+  const hasTierPrices = priceTiers.some((tier) => hasPrices(tier.pricing))
+  const tierThresholds = priceTiers
+    .map((tier) => copy.pricingOverContext(formatTokenCount(tier.contextWindow)))
+    .join(' · ')
 
   return (
     <Card
@@ -138,33 +163,25 @@ export function ModelCard({ catalog, locale, model }: ModelCardProps) {
           }}
         />
 
-        <Divider
-          plain
-          size="small"
-          titlePlacement="start"
-          style={{ marginTop: 'auto', marginBottom: 0 }}
-        >
-          <Space size={token.paddingXS}>
+        <Flex align="center" gap={token.paddingXS} style={{ marginTop: 'auto', minWidth: 0 }}>
+          <Space size={token.paddingXS} style={{ flex: '0 0 auto' }}>
             <Text strong>{copy.pricing}</Text>
             <Text type="secondary">{formatPriceUnit()}</Text>
           </Space>
-        </Divider>
-        {hasPrices(model.pricing) && <PriceGrid catalog={catalog} copy={copy} pricing={model.pricing} />}
-        {priceTiers.map((tier) => (
-          <Flex key={tier.contextWindow} vertical gap={token.paddingXS}>
-            <Divider
-              plain
-              size="small"
-              titlePlacement="start"
-              style={{ margin: `${token.paddingSM}px 0 0` }}
+          {tierThresholds && (
+            <Text
+              ellipsis={{ tooltip: tierThresholds }}
+              type="secondary"
+              style={{ flex: 1, fontSize: token.fontSizeSM, minWidth: 0, textAlign: 'right' }}
             >
-              <Text type="secondary">
-                {copy.pricingOverContext(formatTokenCount(tier.contextWindow))}
-              </Text>
-            </Divider>
-            <PriceGrid catalog={catalog} copy={copy} pricing={tier.pricing} />
-          </Flex>
-        ))}
+              {tierThresholds}
+            </Text>
+          )}
+        </Flex>
+        <Divider style={{ margin: 0 }} />
+        {(hasPrices(model.pricing) || hasTierPrices) && (
+          <PriceGrid catalog={catalog} copy={copy} pricing={model.pricing} tiers={priceTiers} />
+        )}
       </Flex>
     </Card>
   )
