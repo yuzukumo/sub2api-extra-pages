@@ -224,7 +224,7 @@ function ReaderPage({
       style={{
         minHeight: '100vh',
         padding: screens.sm ? token.paddingLG : token.paddingMD,
-        background: token.colorBgContainer,
+        background: token.colorBgLayout,
       }}
     >
       <div style={{ width: '100%', maxWidth: 1280, marginInline: 'auto' }}>
@@ -318,6 +318,36 @@ export default function App() {
   const [locale, setLocale] = useLocalePreference()
   const [themePreference, setThemePreference, dark] = useThemePreference()
 
+  const palette = dark
+    ? {
+        colorBgBase: '#020617',
+        colorBgLayout: '#020617',
+        colorBgContainer: '#0f172a',
+        colorBgElevated: '#1e293b',
+        colorBorder: '#334155',
+        colorBorderSecondary: '#1e293b',
+        colorFillAlter: '#1e293b',
+        colorFillTertiary: '#1e293b',
+        colorText: '#f8fafc',
+        colorTextSecondary: '#94a3b8',
+        colorTextTertiary: '#64748b',
+        boxShadowTertiary: '0 1px 3px rgba(0, 0, 0, 0.3)',
+      }
+    : {
+        colorBgBase: '#ffffff',
+        colorBgLayout: '#f8fafc',
+        colorBgContainer: '#ffffff',
+        colorBgElevated: '#ffffff',
+        colorBorder: '#e2e8f0',
+        colorBorderSecondary: '#f1f5f9',
+        colorFillAlter: '#f8fafc',
+        colorFillTertiary: '#f1f5f9',
+        colorText: '#0f172a',
+        colorTextSecondary: '#64748b',
+        colorTextTertiary: '#94a3b8',
+        boxShadowTertiary: '0 1px 3px rgba(15, 23, 42, 0.08)',
+      }
+
   return (
     <ConfigProvider
       locale={
@@ -329,7 +359,10 @@ export default function App() {
       theme={{
         algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
-          colorPrimary: '#0f8f84',
+          ...palette,
+          colorPrimary: '#0d9488',
+          colorInfo: '#0d9488',
+          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
           borderRadius: 8,
           borderRadiusLG: 12,
           borderRadiusSM: 6,
@@ -338,6 +371,11 @@ export default function App() {
         components: {
           Menu: {
             itemBorderRadius: 8,
+            itemHoverBg: dark ? '#1e293b' : '#f1f5f9',
+            itemSelectedBg: dark ? '#042f2e' : '#f0fdfa',
+            itemSelectedColor: dark ? '#5eead4' : '#0f766e',
+            itemMarginBlock: 2,
+            itemMarginInline: 0,
             subMenuItemBorderRadius: 8,
             subMenuItemBg: 'transparent',
           },

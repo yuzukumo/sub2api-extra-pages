@@ -16,7 +16,7 @@ export function ThemeSelect({ locale, value, onChange }: ThemeSelectProps) {
   return (
     <Select<ThemePreference>
       aria-label={copy.appearance}
-      variant="filled"
+      variant="outlined"
       value={value}
       onChange={onChange}
       options={[

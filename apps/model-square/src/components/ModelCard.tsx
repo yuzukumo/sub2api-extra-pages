@@ -163,22 +163,26 @@ export function ModelCard({ catalog, locale, model }: ModelCardProps) {
           }}
         />
 
-        <Flex align="center" gap={token.paddingXS} style={{ marginTop: 'auto', minWidth: 0 }}>
+        <Flex align="center" gap={token.paddingSM} style={{ marginTop: 'auto', minWidth: 0 }}>
+          <Divider style={{ flex: '0 0 28px', margin: 0, minWidth: 0, width: 'auto' }} />
           <Space size={token.paddingXS} style={{ flex: '0 0 auto' }}>
             <Text strong>{copy.pricing}</Text>
             <Text type="secondary">{formatPriceUnit()}</Text>
           </Space>
+          <Divider style={{ flex: '1 1 0', margin: 0, minWidth: 0, width: 'auto' }} />
           {tierThresholds && (
             <Text
               ellipsis={{ tooltip: tierThresholds }}
               type="secondary"
-              style={{ flex: 1, fontSize: token.fontSizeSM, minWidth: 0, textAlign: 'right' }}
+              style={{ flex: '0 1 auto', fontSize: token.fontSizeSM, maxWidth: '60%', minWidth: 0 }}
             >
               {tierThresholds}
             </Text>
           )}
+          {tierThresholds && (
+            <Divider style={{ flex: '0 0 28px', margin: 0, minWidth: 0, width: 'auto' }} />
+          )}
         </Flex>
-        <Divider style={{ margin: 0 }} />
         {(hasPrices(model.pricing) || hasTierPrices) && (
           <PriceGrid catalog={catalog} copy={copy} pricing={model.pricing} tiers={priceTiers} />
         )}

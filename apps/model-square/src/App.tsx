@@ -74,7 +74,7 @@ function LanguageSelect({ locale, onChange }: LanguageSelectProps) {
       </Tooltip>
       <Select
         aria-label={copy.language}
-        variant="filled"
+        variant="outlined"
         value={locale}
         onChange={onChange}
         options={localeOptions}
@@ -96,7 +96,7 @@ function PagePreferences({
     <Space align="center" size={12} wrap>
       <Select<ThemePreference>
         aria-label={copy.appearance}
-        variant="filled"
+        variant="outlined"
         value={themePreference}
         onChange={onThemeChange}
         options={[
@@ -200,7 +200,7 @@ function CatalogPage({
         <Input
           allowClear
           prefix={<SearchOutlined />}
-          variant="filled"
+          variant="outlined"
           placeholder={copy.searchPlaceholder}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -210,7 +210,7 @@ function CatalogPage({
           allowClear
           aria-label={copy.allProviders}
           prefix={<FilterOutlined />}
-          variant="filled"
+          variant="outlined"
           placeholder={copy.allProviders}
           value={provider}
           onChange={setProvider}
@@ -245,6 +245,36 @@ export default function App() {
   const [locale, setLocale] = useLocalePreference()
   const [themePreference, setThemePreference, dark] = useThemePreference()
 
+  const palette = dark
+    ? {
+        colorBgBase: '#020617',
+        colorBgLayout: '#020617',
+        colorBgContainer: '#0f172a',
+        colorBgElevated: '#1e293b',
+        colorBorder: '#334155',
+        colorBorderSecondary: '#1e293b',
+        colorFillAlter: '#1e293b',
+        colorFillTertiary: '#1e293b',
+        colorText: '#f8fafc',
+        colorTextSecondary: '#94a3b8',
+        colorTextTertiary: '#64748b',
+        boxShadowTertiary: '0 1px 3px rgba(0, 0, 0, 0.3)',
+      }
+    : {
+        colorBgBase: '#ffffff',
+        colorBgLayout: '#f8fafc',
+        colorBgContainer: '#ffffff',
+        colorBgElevated: '#ffffff',
+        colorBorder: '#e2e8f0',
+        colorBorderSecondary: '#f1f5f9',
+        colorFillAlter: '#f8fafc',
+        colorFillTertiary: '#f1f5f9',
+        colorText: '#0f172a',
+        colorTextSecondary: '#64748b',
+        colorTextTertiary: '#94a3b8',
+        boxShadowTertiary: '0 1px 3px rgba(15, 23, 42, 0.08)',
+      }
+
   useEffect(() => {
     document.title = messages[locale].title
   }, [locale])
@@ -262,7 +292,10 @@ export default function App() {
           ? [theme.darkAlgorithm, theme.compactAlgorithm]
           : theme.compactAlgorithm,
         token: {
-          colorPrimary: '#0f8f84',
+          ...palette,
+          colorPrimary: '#0d9488',
+          colorInfo: '#0d9488',
+          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
           borderRadius: 8,
           borderRadiusLG: 12,
           borderRadiusSM: 6,

@@ -18,7 +18,7 @@ export function LanguageSelect({ locale, onChange }: LanguageSelectProps) {
       </Tooltip>
       <Select
         aria-label={copy.language}
-        variant="filled"
+        variant="outlined"
         value={locale}
         onChange={onChange}
         options={localeOptions}
