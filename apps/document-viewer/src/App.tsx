@@ -24,6 +24,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd'
+import type { MenuProps } from 'antd'
 import { LanguageSelect } from './components/LanguageSelect'
 import { MarkdownDocument } from './components/MarkdownDocument'
 import { ThemeSelect } from './components/ThemeSelect'
@@ -32,6 +33,7 @@ import { useLocalePreference } from './hooks/useLocalePreference'
 import { useThemePreference } from './hooks/useThemePreference'
 import { getAvailableLocales, messages } from './i18n'
 import {
+  buildAnchorItems,
   extractHeadings,
   getDocumentAssetBase,
   getDocumentTitle,
@@ -93,15 +95,22 @@ function NavigationMenu({
   onNavigate,
 }: NavigationMenuProps) {
   const [openKeys, setOpenKeys] = useState<string[]>([])
-  const headingItems = headings
-    .filter((heading) => heading.level > 1)
-    .map((heading) => ({
-      key: `heading:${selectedFile}:${heading.id}`,
-      label: <a href={`#${heading.id}`}>{heading.title}</a>,
-    }))
+  const headingItems = buildAnchorItems(headings.filter((heading) => heading.level > 1))
+  const menuItems = (items: typeof headingItems): NonNullable<MenuProps['items']> => items.map((item) => ({
+    key: `heading:${selectedFile}:${item.key}`,
+    label: <a href={item.href}>{item.title}</a>,
+    children: item.children ? menuItems(item.children) : undefined,
+  }))
+  const expandedHeadingKeys = (items: typeof headingItems): string[] => items.flatMap((item) => (
+    item.children?.length
+      ? [`heading:${selectedFile}:${item.key}`, ...expandedHeadingKeys(item.children)]
+      : []
+  ))
 
   useEffect(() => {
-    setOpenKeys(selectedFile && headingItems.length > 0 ? [selectedFile] : [])
+    setOpenKeys(selectedFile && headingItems.length > 0
+      ? [selectedFile, ...expandedHeadingKeys(headingItems)]
+      : [])
   }, [headingItems.length, selectedFile])
 
   return (
@@ -126,7 +135,7 @@ function NavigationMenu({
         if (document.file !== selectedFile || headingItems.length === 0) return baseItem
         return {
           ...baseItem,
-          children: headingItems,
+          children: menuItems(headingItems),
         }
       })}
       style={{ borderInlineEnd: 0, background: 'transparent' }}
@@ -250,7 +259,7 @@ function ReaderPage({
         background: token.colorBgLayout,
       }}
     >
-      <div style={{ width: '100%', maxWidth: 1280, marginInline: 'auto' }}>
+      <div style={{ width: '100%', maxWidth: 1600, marginInline: 'auto' }}>
         {toolbar}
       </div>
 
@@ -265,13 +274,13 @@ function ReaderPage({
           align="flex-start"
           justify="center"
           gap={screens.xl ? token.paddingXL : token.paddingLG}
-          style={{ width: '100%', maxWidth: 1280, marginInline: 'auto' }}
+          style={{ width: '100%', maxWidth: 1600, marginInline: 'auto' }}
         >
           {screens.lg && (
             <aside
               style={{
-                width: 208,
-                flex: '0 0 208px',
+                width: 240,
+                flex: '0 0 240px',
                 maxHeight: 'calc(100vh - 96px)',
                 overflowY: 'auto',
                 position: 'sticky',
@@ -291,7 +300,7 @@ function ReaderPage({
             </aside>
           )}
 
-          <main style={{ width: '100%', maxWidth: 760, minWidth: 0, paddingBottom: 64 }}>
+          <main style={{ flex: '1 1 0', minWidth: 0, paddingBottom: 64 }}>
             {documentQuery.isError ? (
               <Result
                 status="error"
