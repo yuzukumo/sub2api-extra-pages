@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   ClockCircleOutlined,
+  ClusterOutlined,
   DesktopOutlined,
   FilterOutlined,
   GlobalOutlined,
@@ -45,6 +46,10 @@ import { catalogSchema } from './schemas/catalog'
 import type { Locale, ModelCatalog } from './types/catalog'
 
 const { Text, Title } = Typography
+const RateHistoryChart = lazy(async () => {
+  const module = await import('./components/RateHistoryChart')
+  return { default: module.RateHistoryChart }
+})
 
 async function loadCatalog(): Promise<ModelCatalog> {
   const response = await fetch(`${import.meta.env.BASE_URL}api/catalog`, {
@@ -131,14 +136,18 @@ function CatalogPage({
   const copy = messages[locale]
   const [query, setQuery] = useState('')
   const [provider, setProvider] = useState<string>()
+  const [groupId, setGroupId] = useState<string>()
   const catalogQuery = useQuery({ queryKey: ['catalog'], queryFn: loadCatalog })
 
   const catalog = catalogQuery.data
   const providers = useMemo(() => getProviders(catalog?.models ?? []), [catalog])
+  const groups = catalog?.groups ?? []
+  const selectedGroup = groups.find((group) => group.id === groupId) ?? groups[0]
   const models = useMemo(() => {
     if (!catalog) return []
     return filterModels(catalog.models, { query, provider })
-  }, [catalog, query, provider])
+      .filter((model) => !selectedGroup || model.groupPricing?.some((item) => item.groupId === selectedGroup.id))
+  }, [catalog, query, provider, selectedGroup])
 
   if (catalogQuery.isError) {
     return (
@@ -175,7 +184,7 @@ function CatalogPage({
         <Flex align="baseline" gap={token.paddingSM} wrap>
           <Title level={4} style={{ margin: 0 }}>{copy.title}</Title>
           <Tag color="cyan" variant="filled">
-            {catalog ? copy.modelCount(catalog.models.length) : copy.loading}
+            {catalog ? copy.modelCount(models.length) : copy.loading}
           </Tag>
           {catalog && (
             <Space size={4}>
@@ -220,7 +229,32 @@ function CatalogPage({
           }))}
           style={{ minWidth: 150, flex: screens.sm ? undefined : 1 }}
         />
+        {groups.length > 0 && (
+          <Select
+            aria-label={copy.groups}
+            prefix={<ClusterOutlined />}
+            variant="outlined"
+            value={selectedGroup?.id}
+            onChange={setGroupId}
+            options={groups.map((group) => ({
+              label: `${group.name} ×${group.rateMultiplier}`,
+              value: group.id,
+            }))}
+            style={{ minWidth: 210, flex: screens.sm ? undefined : 1 }}
+          />
+        )}
       </Flex>
+
+      {groups.length > 0 && (
+        <Suspense fallback={<Skeleton active paragraph={{ rows: 6 }} />}>
+          <RateHistoryChart
+            groups={groups}
+            history={catalog?.rateHistory ?? []}
+            locale={locale}
+            selectedGroup={selectedGroup}
+          />
+        </Suspense>
+      )}
 
       {catalogQuery.isLoading ? (
         <ResponsiveCardGrid gap={token.paddingSM}>
@@ -233,7 +267,13 @@ function CatalogPage({
       ) : (
         <ResponsiveCardGrid gap={token.paddingSM}>
           {models.map((model) => (
-            <ModelCard key={model.id} catalog={catalog!} locale={locale} model={model} />
+            <ModelCard
+              key={model.id}
+              catalog={catalog!}
+              locale={locale}
+              model={model}
+              selectedGroup={selectedGroup}
+            />
           ))}
         </ResponsiveCardGrid>
       )}

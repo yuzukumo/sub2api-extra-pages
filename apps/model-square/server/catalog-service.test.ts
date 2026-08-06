@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,33 +8,141 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('CatalogService', () => {
-  it('syncs on startup and does not sync when the catalog is read', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      openai: {
-        id: 'openai',
-        name: 'OpenAI',
-        models: {
-          'gpt-test': {
-            id: 'gpt-test',
-            name: 'GPT Test',
-            cost: { input: 1, output: 2 },
-          },
-        },
+function modelsResponse(modelId: string, name: string, input: number): Response {
+  return new Response(JSON.stringify({
+    openai: {
+      id: 'openai',
+      name: 'OpenAI',
+      models: {
+        [modelId]: { id: modelId, name, cost: { input } },
       },
-    }), { status: 200 }))
+    },
+  }), { status: 200 })
+}
+
+function groupsResponse(multiplier = 1.5): Response {
+  return new Response(JSON.stringify({
+    data: {
+      items: [{ id: 1, name: 'Standard', platform: 'openai', status: 'active', rate_multiplier: multiplier }],
+    },
+  }), { status: 200 })
+}
+
+function groupModelsResponse(models = ['gpt-test']): Response {
+  return new Response(JSON.stringify({ data: { models } }), { status: 200 })
+}
+
+function createService(cacheFile: string): CatalogService {
+  return new CatalogService({
+    cacheFile,
+    sub2ApiUrl: 'http://sub2api:8080',
+    sub2ApiAdminApiKey: 'admin-key',
+  })
+}
+
+describe('CatalogService', () => {
+  it('builds the catalog from Sub2API models at startup and does not sync when it is read', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/models-list-candidates')) return groupModelsResponse()
+      if (url.includes('/admin/groups')) return groupsResponse()
+      return modelsResponse('gpt-test', 'GPT Test', 1)
+    })
 
     try {
-      const service = new CatalogService({
-        cacheFile: join(directory, 'catalog.json'),
-        modelIds: ['gpt-test'],
-      })
+      const service = createService(join(directory, 'catalog.json'))
       await service.initialize()
       await service.getCatalog()
       await service.getCatalog()
 
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect((await service.getCatalog()).models.map((model) => model.id)).toEqual(['gpt-test'])
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it('refreshes models.dev metadata when Sub2API available models change', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
+    const replies = [
+      groupsResponse(), groupModelsResponse(['gpt-initial']), modelsResponse('gpt-initial', 'Initial name', 1),
+      groupsResponse(), groupModelsResponse(['gpt-updated']), modelsResponse('gpt-updated', 'Updated name', 2),
+    ]
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => replies.shift()!)
+
+    try {
+      const service = createService(join(directory, 'catalog.json'))
+      await service.initialize()
+      await service.sync()
+
+      expect((await service.getCatalog()).models[0]).toMatchObject({
+        id: 'gpt-updated',
+        name: 'Updated name',
+        pricing: { input: 2 },
+        groupPricing: [{ groupId: '1', pricing: { input: 3 } }],
+      })
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it('retries pending models.dev metadata after a changed model set fails to refresh', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
+    const replies = [
+      groupsResponse(), groupModelsResponse(['gpt-initial']), modelsResponse('gpt-initial', 'Initial name', 1),
+      groupsResponse(), groupModelsResponse(['gpt-updated']), new Response('', { status: 503 }),
+      groupsResponse(), groupModelsResponse(['gpt-updated']), modelsResponse('gpt-updated', 'Updated name', 2),
+    ]
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => replies.shift()!)
+
+    try {
+      const service = createService(join(directory, 'catalog.json'))
+      const syncGroups = (service as unknown as { syncGroups: () => Promise<void> }).syncGroups.bind(service)
+      await service.initialize()
+      await expect(syncGroups()).rejects.toThrow('models.dev returned 503')
+      await syncGroups()
+
+      expect((await service.getCatalog()).models[0]).toMatchObject({
+        id: 'gpt-updated',
+        name: 'Updated name',
+        pricing: { input: 2 },
+      })
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it('keeps cached models available and reapplies the current group multiplier during a models.dev outage', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
+    const cacheFile = join(directory, 'catalog.json')
+    await writeFile(cacheFile, JSON.stringify({
+      version: 5,
+      updatedAt: '2026-08-06',
+      currency: 'USD',
+      priceUnit: 'MTok',
+      models: [{
+        id: 'gpt-test', name: 'GPT Test', provider: 'OpenAI', icon: 'openai', capabilities: [],
+        pricing: { input: 1 }, groupPricing: [{ groupId: '1', pricing: { input: 1 } }],
+      }],
+      groups: [{ id: '1', name: 'Standard', platform: 'openai', rateMultiplier: 1 }],
+      rateHistory: [],
+    }), 'utf8')
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(groupsResponse(1.5))
+      .mockResolvedValueOnce(groupModelsResponse())
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      const service = createService(cacheFile)
+      await service.initialize()
+
+      const catalog = await service.getCatalog()
+      expect(catalog.rateHistory).toHaveLength(1)
+      expect(catalog.groups).toEqual([expect.objectContaining({ id: '1', rateMultiplier: 1.5 })])
+      expect(catalog.models[0]?.groupPricing).toEqual([{ groupId: '1', pricing: { input: 1.5 } }])
+      expect(fetchMock).toHaveBeenCalledTimes(3)
     } finally {
       await rm(directory, { force: true, recursive: true })
     }

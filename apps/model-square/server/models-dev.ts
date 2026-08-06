@@ -163,7 +163,7 @@ export function normalizeCatalog(
   })
 
   return {
-    version: 3,
+    version: 5,
     updatedAt: formatLocalDate(new Date()),
     currency: 'USD',
     priceUnit: 'MTok',

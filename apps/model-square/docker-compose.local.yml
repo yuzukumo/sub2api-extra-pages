@@ -8,6 +8,11 @@ services:
       - "127.0.0.1:6001:3000"
     environment:
       TZ: Asia/Singapore
-      MODEL_IDS: "gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna"
-      PRESERVE_MODEL_ID_ORDER: "false"
       NOTICE_MESSAGE: "Model availability and pricing are subject to change."
+      SUB2API_URL: "http://sub2api:8080"
+      SUB2API_ADMIN_API_KEY: ""
+    volumes:
+      - sub2apiextra-modelsquare-data:/app/data
+
+volumes:
+  sub2apiextra-modelsquare-data:

@@ -1,30 +1,36 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fetchModelsDev, normalizeCatalog } from './models-dev.js'
-import type { CatalogResponse } from './types.js'
+import {
+  appendRateHistory,
+  attachGroupPricing,
+  collectAvailableModelIds,
+  fetchSub2ApiGroups,
+  type ResolvedSub2ApiGroup,
+} from './sub2api.js'
+import type { CatalogRateHistoryPoint, CatalogResponse } from './types.js'
 
 export interface CatalogServiceOptions {
   cacheFile: string
-  modelIds: string[]
+  historyFile?: string
+  sub2ApiUrl?: string
+  sub2ApiAdminApiKey?: string
 }
 
 export class CatalogService {
   private catalog?: CatalogResponse
   private syncPromise?: Promise<CatalogResponse>
+  private groupSyncPromise?: Promise<void>
+  private rateHistory: CatalogRateHistoryPoint[] = []
+  private groups: ResolvedSub2ApiGroup[] = []
+  private modelIds: string[] = []
+  private metadataRefreshPending = true
 
   constructor(private readonly options: CatalogServiceOptions) {}
 
   async initialize(): Promise<void> {
-    try {
-      const cached = JSON.parse(await readFile(this.options.cacheFile, 'utf8')) as CatalogResponse
-      const cachedIds = cached.models?.map((model) => model.id)
-      const matchesConfiguration = cached.version === 3 &&
-        cachedIds?.length === this.options.modelIds.length &&
-        cachedIds.every((id, index) => id === this.options.modelIds[index])
-      if (matchesConfiguration) this.catalog = cached
-    } catch {
-      // The first successful upstream sync creates the cache.
-    }
+    await this.loadCache()
+    await this.loadHistory()
 
     let startupError: unknown
     try {
@@ -33,6 +39,7 @@ export class CatalogService {
       startupError = error
     }
     this.scheduleDailySync()
+    if (this.hasSub2Api) this.scheduleGroupSync()
     if (startupError && !this.catalog) throw startupError
   }
 
@@ -50,12 +57,22 @@ export class CatalogService {
   }
 
   private async performSync(): Promise<CatalogResponse> {
-    const signal = AbortSignal.timeout(30_000)
-    const upstream = await fetchModelsDev(signal)
-    const catalog = normalizeCatalog(upstream, this.options.modelIds)
-    this.catalog = catalog
-    await this.writeCache(catalog)
-    return catalog
+    this.requireSub2Api()
+    const { modelIds } = await this.refreshSub2ApiState()
+    try {
+      const upstream = await fetchModelsDev(AbortSignal.timeout(30_000))
+      this.catalog = this.createCatalog(normalizeCatalog(upstream, modelIds))
+      this.metadataRefreshPending = false
+      await this.writeCache(this.catalog)
+      return this.catalog
+    } catch (error) {
+      this.metadataRefreshPending = true
+      if (this.catalog) {
+        this.catalog = this.createCatalog(this.catalog)
+        await this.writeCache(this.catalog)
+      }
+      throw error
+    }
   }
 
   private scheduleDailySync(): void {
@@ -68,12 +85,112 @@ export class CatalogService {
       try {
         await this.sync()
       } catch (error) {
-        console.error('[catalog] daily models.dev sync failed', error)
+        console.error('[catalog] daily catalog sync failed', error)
       } finally {
         this.scheduleDailySync()
       }
     }, delay)
     syncTimer.unref()
+  }
+
+  private scheduleGroupSync(): void {
+    const timer = setInterval(async () => {
+      try {
+        await this.syncGroups()
+      } catch (error) {
+        console.error('[catalog] periodic Sub2API group sync failed', error)
+      }
+    }, 10 * 60 * 1000)
+    timer.unref()
+  }
+
+  private async syncGroups(): Promise<void> {
+    if (!this.hasSub2Api) return
+    if (this.syncPromise) {
+      await this.syncPromise
+      return
+    }
+    if (this.groupSyncPromise) return this.groupSyncPromise
+
+    this.groupSyncPromise = (async () => {
+      const previousModelIds = this.modelIds
+      const { modelIds } = await this.refreshSub2ApiState()
+      const modelsChanged = !sameModelIds(previousModelIds, modelIds)
+      const metadataRefreshNeeded = !this.catalog || modelsChanged || this.metadataRefreshPending
+      let nextCatalog: CatalogResponse
+
+      if (metadataRefreshNeeded) {
+        this.metadataRefreshPending = true
+        const upstream = await fetchModelsDev(AbortSignal.timeout(30_000))
+        nextCatalog = this.createCatalog(normalizeCatalog(upstream, modelIds))
+        this.metadataRefreshPending = false
+      } else {
+        nextCatalog = this.createCatalog(this.catalog!)
+      }
+      this.catalog = nextCatalog
+      await this.writeCache(nextCatalog)
+    })().catch(async (error) => {
+      if (this.catalog) {
+        this.catalog = this.createCatalog(this.catalog)
+        await this.writeCache(this.catalog)
+      }
+      throw error
+    }).finally(() => {
+      this.groupSyncPromise = undefined
+    })
+    return this.groupSyncPromise
+  }
+
+  private async refreshSub2ApiState(): Promise<{ modelIds: string[] }> {
+    const groups = await fetchSub2ApiGroups(
+      this.options.sub2ApiUrl!,
+      this.options.sub2ApiAdminApiKey!,
+      AbortSignal.timeout(30_000),
+    )
+    this.groups = groups
+    this.modelIds = collectAvailableModelIds(groups)
+    const now = new Date()
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    this.rateHistory = appendRateHistory(this.rateHistory, groups, date, now.toISOString())
+    await this.writeHistory(this.rateHistory)
+    return { modelIds: this.modelIds }
+  }
+
+  private createCatalog(baseCatalog: CatalogResponse): CatalogResponse {
+    return {
+      ...baseCatalog,
+      groups: this.groups.map(({ models, modelsListEnabled, ...group }) => group),
+      rateHistory: this.rateHistory,
+      models: attachGroupPricing(baseCatalog.models, this.groups),
+    }
+  }
+
+  private async loadCache(): Promise<void> {
+    try {
+      const cached = JSON.parse(await readFile(this.options.cacheFile, 'utf8')) as CatalogResponse
+      if (cached.version !== 5) return
+      this.catalog = cached
+      this.modelIds = cached.models.map((model) => model.id)
+      this.rateHistory = cached.rateHistory ?? []
+      this.groups = (cached.groups ?? []).map((group) => ({
+        ...group,
+        models: cached.models
+          .filter((model) => model.groupPricing?.some((item) => item.groupId === group.id))
+          .map((model) => model.id),
+        modelsListEnabled: false,
+      }))
+    } catch {
+      // The first successful upstream sync creates the cache.
+    }
+  }
+
+  private async loadHistory(): Promise<void> {
+    try {
+      const history = JSON.parse(await readFile(this.historyFile, 'utf8')) as CatalogRateHistoryPoint[]
+      if (Array.isArray(history)) this.rateHistory = history
+    } catch {
+      // The first successful Sub2API sync creates the history file.
+    }
   }
 
   private async writeCache(catalog: CatalogResponse): Promise<void> {
@@ -83,4 +200,28 @@ export class CatalogService {
     await writeFile(temporary, `${JSON.stringify(catalog, null, 2)}\n`, 'utf8')
     await rename(temporary, cacheFile)
   }
+
+  private async writeHistory(history: CatalogRateHistoryPoint[]): Promise<void> {
+    const historyFile = resolve(this.historyFile)
+    const temporary = `${historyFile}.tmp`
+    await mkdir(dirname(historyFile), { recursive: true })
+    await writeFile(temporary, `${JSON.stringify(history, null, 2)}\n`, 'utf8')
+    await rename(temporary, historyFile)
+  }
+
+  private requireSub2Api(): void {
+    if (!this.hasSub2Api) throw new Error('SUB2API_URL and SUB2API_ADMIN_API_KEY are required')
+  }
+
+  private get historyFile(): string {
+    return this.options.historyFile ?? `${this.options.cacheFile}.history.json`
+  }
+
+  private get hasSub2Api(): boolean {
+    return Boolean(this.options.sub2ApiUrl && this.options.sub2ApiAdminApiKey)
+  }
+}
+
+function sameModelIds(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((model, index) => model === right[index])
 }

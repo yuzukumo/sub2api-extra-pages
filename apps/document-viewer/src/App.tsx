@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   FileTextOutlined,
@@ -80,6 +80,7 @@ async function loadNavigation(
 }
 
 interface NavigationMenuProps {
+  activeHeadingId?: string
   headings: DocumentHeading[]
   navigation: NavigationPayload
   selectedFile?: string
@@ -88,12 +89,14 @@ interface NavigationMenuProps {
 }
 
 function NavigationMenu({
+  activeHeadingId,
   headings,
   navigation,
   selectedFile,
   onSelect,
   onNavigate,
 }: NavigationMenuProps) {
+  const navigationRef = useRef<HTMLDivElement>(null)
   const [openKeys, setOpenKeys] = useState<string[]>([])
   const headingItems = buildAnchorItems(headings.filter((heading) => heading.level > 1))
   const menuItems = (items: typeof headingItems): NonNullable<MenuProps['items']> => items.map((item) => ({
@@ -106,6 +109,21 @@ function NavigationMenu({
       ? [`heading:${selectedFile}:${item.key}`, ...expandedHeadingKeys(item.children)]
       : []
   ))
+  const getHeadingParentKeys = (
+    items: typeof headingItems,
+    headingId: string,
+    parentKeys: string[] = [],
+  ): string[] | undefined => {
+    for (const item of items) {
+      const key = `heading:${selectedFile}:${item.key}`
+      if (item.key === headingId) return parentKeys
+      if (item.children) {
+        const nestedParents = getHeadingParentKeys(item.children, headingId, [...parentKeys, key])
+        if (nestedParents) return nestedParents
+      }
+    }
+    return undefined
+  }
 
   useEffect(() => {
     setOpenKeys(selectedFile && headingItems.length > 0
@@ -113,34 +131,94 @@ function NavigationMenu({
       : [])
   }, [headingItems.length, selectedFile])
 
+  useEffect(() => {
+    if (!activeHeadingId || !selectedFile) return
+
+    const parentKeys = getHeadingParentKeys(headingItems, activeHeadingId) ?? []
+    setOpenKeys((current) => Array.from(new Set([...current, selectedFile, ...parentKeys])))
+
+    const frame = window.requestAnimationFrame(() => {
+      const links = navigationRef.current?.querySelectorAll<HTMLAnchorElement>('a[href]')
+      const activeLink = Array.from(links ?? []).find((link) => link.getAttribute('href') === `#${activeHeadingId}`)
+      activeLink?.scrollIntoView({ block: 'nearest' })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeHeadingId, selectedFile])
+
   return (
-    <Menu
-      mode="inline"
-      openKeys={openKeys}
-      onOpenChange={setOpenKeys}
-      selectedKeys={selectedFile ? [selectedFile] : []}
-      onClick={({ key }) => {
-        if (key.startsWith('heading:')) {
-          onNavigate()
-          return
-        }
-        onSelect(key)
-      }}
-      items={navigation.documents.map((document) => {
-        const baseItem = {
-          key: document.file,
-          icon: <FileTextOutlined />,
-          label: document.title,
-        }
-        if (document.file !== selectedFile || headingItems.length === 0) return baseItem
-        return {
-          ...baseItem,
-          children: menuItems(headingItems),
-        }
-      })}
-      style={{ borderInlineEnd: 0, background: 'transparent' }}
-    />
+    <div ref={navigationRef}>
+      <Menu
+        mode="inline"
+        openKeys={openKeys}
+        onOpenChange={setOpenKeys}
+        selectedKeys={activeHeadingId && selectedFile
+          ? [`heading:${selectedFile}:${activeHeadingId}`]
+          : selectedFile ? [selectedFile] : []}
+        onClick={({ key }) => {
+          if (key.startsWith('heading:')) {
+            onNavigate()
+            return
+          }
+          onSelect(key)
+        }}
+        items={navigation.documents.map((document) => {
+          const baseItem = {
+            key: document.file,
+            icon: <FileTextOutlined />,
+            label: document.title,
+          }
+          if (document.file !== selectedFile || headingItems.length === 0) return baseItem
+          return {
+            ...baseItem,
+            children: menuItems(headingItems),
+          }
+        })}
+        style={{ borderInlineEnd: 0, background: 'transparent' }}
+      />
+    </div>
   )
+}
+
+function useActiveHeading(headings: DocumentHeading[]): string | undefined {
+  const [activeHeadingId, setActiveHeadingId] = useState<string>()
+
+  useEffect(() => {
+    const elements = headings
+      .filter((heading) => heading.level > 1)
+      .map((heading) => document.getElementById(heading.id))
+      .filter((element): element is HTMLElement => element !== null)
+
+    if (elements.length === 0) {
+      setActiveHeadingId(undefined)
+      return
+    }
+
+    let frame: number | undefined
+    const updateActiveHeading = () => {
+      frame = undefined
+      const offset = window.innerHeight * 0.25
+      const active = elements.reduce((current, element) => (
+        element.getBoundingClientRect().top <= offset ? element.id : current
+      ), elements[0]!.id)
+      setActiveHeadingId(active)
+    }
+    const scheduleUpdate = () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(updateActiveHeading)
+    }
+
+    scheduleUpdate()
+    window.addEventListener('scroll', scheduleUpdate, { passive: true })
+    window.addEventListener('resize', scheduleUpdate)
+    return () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', scheduleUpdate)
+      window.removeEventListener('resize', scheduleUpdate)
+    }
+  }, [headings])
+
+  return activeHeadingId
 }
 
 interface ReaderPageProps {
@@ -191,6 +269,7 @@ function ReaderPage({
     () => currentDocument ? extractHeadings(currentDocument.content) : [],
     [currentDocument],
   )
+  const activeHeadingId = useActiveHeading(headings)
 
   useEffect(() => {
     if (effectiveFile && effectiveFile !== selectedFile) replaceDocument(effectiveFile)
@@ -290,6 +369,7 @@ function ReaderPage({
               <Space direction="vertical" size={token.paddingXS} style={{ width: '100%' }}>
                 <Text strong>{navigation.title ?? copy.documents}</Text>
                 <NavigationMenu
+                  activeHeadingId={activeHeadingId}
                   headings={headings}
                   navigation={navigation}
                   selectedFile={effectiveFile}
@@ -334,6 +414,7 @@ function ReaderPage({
           onClose={() => setNavigationOpen(false)}
         >
           <NavigationMenu
+            activeHeadingId={activeHeadingId}
             headings={headings}
             navigation={navigation}
             selectedFile={effectiveFile}

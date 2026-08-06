@@ -4,26 +4,31 @@ English | [简体中文](README.zh-CN.md) | [繁體中文（台灣）](README.zh
 
 A read-only model listing designed to be embedded in Sub2API. The page uses React, TypeScript, and Ant Design. Model icons come from `@lobehub/icons`, and model metadata comes from [models.dev](https://models.dev/).
 
-The service has no configuration page, administration API, or write API. The list of displayed models is read from `MODEL_IDS` only when the process starts.
+The service has no configuration page, administration API, or write API. It automatically lists the available models and rate multipliers in active, non-exclusive Sub2API groups.
 
 ## Configuration
 
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `MODEL_IDS` | Yes | Example provided in Compose | Comma- or newline-separated model IDs |
-| `PRESERVE_MODEL_ID_ORDER` | No | `false` | When `true`, preserve the order in `MODEL_IDS`; otherwise, sort by model ID alphabetically |
-| `NOTICE_MESSAGE` | No | Example provided in Compose | A single notice displayed at the top of the page; leave empty to hide it |
-| `CACHE_FILE` | No | `./data/catalog-cache.json` | Metadata cache file |
+| Variable                  | Required | Default                       | Description                                                               |
+| ------------------------- | -------- | ----------------------------- | ------------------------------------------------------------------------- |
+| `NOTICE_MESSAGE`          | No       | Example provided in Compose   | A single notice displayed at the top of the page; leave empty to hide it |
+| `TZ`                      | No       | `Asia/Singapore`              | Local timezone for daily 00:00 sync and rate-history timestamps          |
+| `CACHE_FILE`              | No       | `./data/catalog-cache.json`  | Metadata cache file                                                       |
+| `HISTORY_FILE`            | No       | `./data/rate-history.json`   | Sub2API group multiplier history                                          |
+| `SUB2API_URL`             | Yes      | Example provided in Compose   | Internal URL of the Sub2API service                                       |
+| `SUB2API_ADMIN_API_KEY`   | Yes      | Empty                         | Admin API key used only by this server to read groups and available models |
 
 Example:
 
 ```env
-MODEL_IDS="gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna"
-PRESERVE_MODEL_ID_ORDER="false"
 NOTICE_MESSAGE="Model availability and pricing are subject to change."
+TZ=Asia/Singapore
+SUB2API_URL="http://sub2api:8080"
+SUB2API_ADMIN_API_KEY=""
 ```
 
-The service synchronizes with models.dev immediately at startup and then every day at 00:00 local time. The Compose example sets `TZ` to `Asia/Singapore`; change this environment variable to use another time zone. Browser visits do not trigger synchronization. Unknown IDs remain visible with a generic icon and a metadata-unavailable message. Cards display the base prices and any context-tier prices returned by models.dev.
+At startup, the service reads active, non-exclusive Sub2API groups and their available models, then obtains metadata from models.dev. It rechecks Sub2API every 10 minutes; a changed model set immediately triggers a models.dev refresh, while an unchanged set only updates groups and prices. Models.dev is also refreshed daily at 00:00 local time. The resulting daily open/high/low/close multiplier history is displayed as a Stock chart. The admin key is never sent to the browser, and browser visits do not trigger synchronization.
+
+The Sub2API service and this container must be able to reach each other over the configured Docker network. Use a dedicated admin API key where possible; the model square never calls write endpoints.
 
 ## Local development
 
@@ -43,7 +48,7 @@ npm run check
 
 ## Docker deployment
 
-Edit the model IDs and notice in [`docker-compose.yml`](docker-compose.yml). To use the image published by GitHub Actions, run:
+Before deployment, set the Sub2API address, admin API key, and optional notice in [`docker-compose.yml`](docker-compose.yml). To use the image published by GitHub Actions, run:
 
 ```bash
 docker compose pull
@@ -57,6 +62,8 @@ docker compose -f docker-compose.local.yml up -d --build
 ```
 
 The provided Compose file maps `127.0.0.1:6001` to port `3000` in the container. Change the host address or port mapping in `docker-compose.yml` when needed.
+
+Compose creates the named volume `sub2apiextra-modelsquare-data` for the catalog cache and multiplier history. Keep it when replacing the container or image; remove it only when you want to reset the recorded history.
 
 After changing the Compose environment, apply it with `docker compose up -d`. Do not use only `docker compose restart`, because it preserves the old container environment.
 

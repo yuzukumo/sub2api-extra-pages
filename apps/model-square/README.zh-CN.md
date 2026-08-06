@@ -4,26 +4,29 @@
 
 一个用于嵌入 Sub2API 的只读模型展示页面。页面使用 React、TypeScript 和 Ant Design，模型图标来自 `@lobehub/icons`，模型元数据来自 [models.dev](https://models.dev/)。
 
-服务不提供配置页面、管理员接口或写入接口。进程仅在启动时从 `MODEL_IDS` 读取需要展示的模型。
+服务不提供配置页面、管理员接口或写入接口。它会自动展示所有启用、非专属 Sub2API 分组中的可用模型以及倍率。
 
 ## 配置
 
-| 变量 | 必填 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `MODEL_IDS` | 是 | Compose 中提供示例 | 使用逗号或换行分隔的模型 ID |
-| `PRESERVE_MODEL_ID_ORDER` | 否 | `false` | 设为 `true` 时按 `MODEL_IDS` 中的顺序展示；否则按模型 ID 的字母顺序展示 |
-| `NOTICE_MESSAGE` | 否 | Compose 中提供示例 | 页面顶部显示的一条通知，留空则不显示 |
-| `CACHE_FILE` | 否 | `./data/catalog-cache.json` | 元数据缓存文件 |
+| 变量                      | 必填 | 默认值                        | 说明                                             |
+| ------------------------- | ---- | ----------------------------- | ------------------------------------------------ |
+| `NOTICE_MESSAGE`        | 否   | Compose 中提供示例            | 页面顶部显示的一条通知，留空则不显示             |
+| `TZ`                    | 否   | `Asia/Singapore`            | 每天 00:00 同步和倍率历史记录所使用的本地时区    |
+| `CACHE_FILE`            | 否   | `./data/catalog-cache.json` | 元数据缓存文件                                   |
+| `HISTORY_FILE`          | 否   | `./data/rate-history.json`  | 分组倍率历史文件                                 |
+| `SUB2API_URL`           | 是   | Compose 中提供示例            | Sub2API 内网地址                                 |
+| `SUB2API_ADMIN_API_KEY` | 是   | 空                            | 仅由服务端读取分组和可用模型所用的管理员 API Key |
 
 示例：
 
 ```env
-MODEL_IDS="gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna"
-PRESERVE_MODEL_ID_ORDER="false"
 NOTICE_MESSAGE="Model availability and pricing are subject to change."
+TZ=Asia/Singapore
+SUB2API_URL="http://sub2api:8080"
+SUB2API_ADMIN_API_KEY=""
 ```
 
-服务在启动时立即与 models.dev 同步，之后每天在本地时间 00:00 同步一次。示例 Compose 将 `TZ` 设为 `Asia/Singapore`；如需使用其他时区，请修改此环境变量。浏览器访问不会触发同步。未收录的 ID 仍会显示，并使用通用图标和元数据缺失提示。卡片会显示基础价格，以及 models.dev 返回的上下文阶梯价格。
+服务启动时会先读取启用且非专属的 Sub2API 分组及其可用模型，再从 models.dev 获取元数据。之后每 10 分钟检查一次 Sub2API；模型集合发生变化时会立即刷新 models.dev，未变化时只更新分组和价格。models.dev 仍会在本地时间每天 00:00 强制刷新。每日倍率数据会聚合为开、高、低、收并显示为 K 线。管理员 Key 不会发送到浏览器，浏览器访问也不会触发同步。
 
 ## 本地开发
 
@@ -43,7 +46,7 @@ npm run check
 
 ## Docker 部署
 
-先在 [`docker-compose.yml`](docker-compose.yml) 中修改模型 ID 和通知内容。如需使用 GitHub Actions 发布的镜像，请运行：
+先在 [`docker-compose.yml`](docker-compose.yml) 中设置 Sub2API 地址、管理员 API Key 和可选通知内容。如需使用 GitHub Actions 发布的镜像，请运行：
 
 ```bash
 docker compose pull
@@ -57,6 +60,8 @@ docker compose -f docker-compose.local.yml up -d --build
 ```
 
 示例 Compose 将 `127.0.0.1:6001` 映射到容器端口 `3000`。如需使用其他监听地址或端口，请修改 `docker-compose.yml` 中的端口映射。
+
+Compose 会创建名为 `sub2apiextra-modelsquare-data` 的命名卷，用于保存目录缓存和倍率历史。更新容器或镜像时请保留该卷；只有需要重置历史记录时才删除它。
 
 修改 Compose 环境变量后，使用 `docker compose up -d` 应用配置。不要只执行 `docker compose restart`，因为它会继续使用已有容器中的旧环境变量。
 

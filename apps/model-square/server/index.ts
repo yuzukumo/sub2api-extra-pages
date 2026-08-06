@@ -4,20 +4,17 @@ import { resolve } from 'node:path'
 import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { CatalogService } from './catalog-service.js'
-import { resolveModelIds } from './model-config.js'
 
 const port = 3000
 const host = process.env.HOST || '0.0.0.0'
-const modelIds = resolveModelIds(
-  process.env.MODEL_IDS,
-  process.env.PRESERVE_MODEL_ID_ORDER,
-)
 const notice = process.env.NOTICE_MESSAGE?.trim() || undefined
 const distRoot = resolve(process.env.STATIC_DIR || 'dist')
 
 const catalogService = new CatalogService({
   cacheFile: process.env.CACHE_FILE || './data/catalog-cache.json',
-  modelIds,
+  historyFile: process.env.HISTORY_FILE || './data/rate-history.json',
+  sub2ApiUrl: process.env.SUB2API_URL?.trim() || undefined,
+  sub2ApiAdminApiKey: process.env.SUB2API_ADMIN_API_KEY?.trim() || undefined,
 })
 
 await catalogService.initialize()

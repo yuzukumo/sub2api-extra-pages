@@ -15,6 +15,7 @@ import { formatPrice, formatPriceUnit, formatTokenCount } from '../lib/catalog'
 import { messages } from '../i18n'
 import type {
   CatalogModel,
+  CatalogGroup,
   Locale,
   ModelCatalog,
   ModelPriceFields,
@@ -28,6 +29,7 @@ interface ModelCardProps {
   catalog: ModelCatalog
   locale: Locale
   model: CatalogModel
+  selectedGroup?: CatalogGroup
 }
 
 interface PriceGridProps {
@@ -87,7 +89,7 @@ function PriceGrid({ catalog, copy, pricing, tiers }: PriceGridProps) {
   )
 }
 
-export function ModelCard({ catalog, locale, model }: ModelCardProps) {
+export function ModelCard({ catalog, locale, model, selectedGroup }: ModelCardProps) {
   const { token } = theme.useToken()
   const copy = messages[locale]
   const details = [
@@ -107,7 +109,11 @@ export function ModelCard({ catalog, locale, model }: ModelCardProps) {
       ? [{ key: 'max-output', label: copy.maxOutput, children: <Text strong>{formatTokenCount(model.maxOutput)}</Text> }]
       : []),
   ]
-  const priceTiers = model.pricing.tiers ?? []
+  const groupPricing = selectedGroup
+    ? model.groupPricing?.find((item) => item.groupId === selectedGroup.id)?.pricing
+    : undefined
+  const effectivePricing = groupPricing ?? model.pricing
+  const priceTiers = effectivePricing.tiers ?? []
   const hasTierPrices = priceTiers.some((tier) => hasPrices(tier.pricing))
   const tierThresholds = priceTiers
     .map((tier) => copy.pricingOverContext(formatTokenCount(tier.contextWindow)))
@@ -166,8 +172,13 @@ export function ModelCard({ catalog, locale, model }: ModelCardProps) {
         <Flex align="center" gap={token.paddingSM} style={{ marginTop: 'auto', minWidth: 0 }}>
           <Divider style={{ flex: '0 0 28px', margin: 0, minWidth: 0, width: 'auto' }} />
           <Space size={token.paddingXS} style={{ flex: '0 0 auto' }}>
-            <Text strong>{copy.pricing}</Text>
+            <Text strong>{groupPricing ? copy.groupPrice : copy.pricing}</Text>
             <Text type="secondary">{formatPriceUnit()}</Text>
+            {groupPricing && (
+              <Tag bordered={false} color="blue">
+                {selectedGroup!.name} ×{selectedGroup!.rateMultiplier}
+              </Tag>
+            )}
           </Space>
           <Divider style={{ flex: '1 1 0', margin: 0, minWidth: 0, width: 'auto' }} />
           {tierThresholds && (
@@ -183,8 +194,8 @@ export function ModelCard({ catalog, locale, model }: ModelCardProps) {
             <Divider style={{ flex: '0 0 28px', margin: 0, minWidth: 0, width: 'auto' }} />
           )}
         </Flex>
-        {(hasPrices(model.pricing) || hasTierPrices) && (
-          <PriceGrid catalog={catalog} copy={copy} pricing={model.pricing} tiers={priceTiers} />
+        {(hasPrices(effectivePricing) || hasTierPrices) && (
+          <PriceGrid catalog={catalog} copy={copy} pricing={effectivePricing} tiers={priceTiers} />
         )}
       </Flex>
     </Card>

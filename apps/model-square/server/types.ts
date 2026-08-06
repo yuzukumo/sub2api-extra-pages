@@ -65,6 +65,30 @@ export interface CatalogPricingTier {
   pricing: CatalogPricing
 }
 
+export interface CatalogGroup {
+  id: string
+  name: string
+  platform: string
+  rateMultiplier: number
+  status?: string
+}
+
+export interface CatalogGroupPricing {
+  groupId: string
+  pricing: CatalogPricing & {
+    tiers?: CatalogPricingTier[]
+  }
+}
+
+export interface CatalogRateHistoryPoint {
+  date: string
+  recordedAt: string
+  groups: Array<{
+    groupId: string
+    multiplier: number
+  }>
+}
+
 export interface CatalogModel {
   id: string
   name: string
@@ -77,13 +101,16 @@ export interface CatalogModel {
   pricing: CatalogPricing & {
     tiers?: CatalogPricingTier[]
   }
+  groupPricing?: CatalogGroupPricing[]
 }
 
 export interface CatalogResponse {
-  version: 3
+  version: 5
   updatedAt: string
   currency: 'USD'
   priceUnit: 'MTok'
   notice?: string
   models: CatalogModel[]
+  groups?: CatalogGroup[]
+  rateHistory?: CatalogRateHistoryPoint[]
 }

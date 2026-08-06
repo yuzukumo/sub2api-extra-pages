@@ -4,26 +4,29 @@
 
 這是一個可嵌入 Sub2API 的唯讀模型展示頁面。頁面使用 React、TypeScript 與 Ant Design，模型圖示來自 `@lobehub/icons`，模型中繼資料來自 [models.dev](https://models.dev/)。
 
-服務不提供設定頁面、管理員介面或寫入介面。處理程序只會在啟動時從 `MODEL_IDS` 讀取需要顯示的模型。
+服務不提供設定頁面、管理員介面或寫入介面。它會自動顯示所有啟用、非專屬 Sub2API 分組中的可用模型與倍率。
 
 ## 設定
 
-| 變數 | 必填 | 預設值 | 說明 |
-| --- | --- | --- | --- |
-| `MODEL_IDS` | 是 | Compose 中提供範例 | 以逗號或換行分隔的模型 ID |
-| `PRESERVE_MODEL_ID_ORDER` | 否 | `false` | 設為 `true` 時依 `MODEL_IDS` 中的順序顯示；否則依模型 ID 的字母順序顯示 |
-| `NOTICE_MESSAGE` | 否 | Compose 中提供範例 | 顯示於頁面頂端的一則通知，留空則不顯示 |
-| `CACHE_FILE` | 否 | `./data/catalog-cache.json` | 中繼資料快取檔案 |
+| 變數                      | 必填 | 預設值                        | 說明                                             |
+| ------------------------- | ---- | ----------------------------- | ------------------------------------------------ |
+| `NOTICE_MESSAGE`          | 否   | Compose 中提供範例            | 顯示於頁面頂端的一則通知，留空則不顯示           |
+| `TZ`                      | 否   | `Asia/Singapore`              | 每天 00:00 同步與倍率歷史記錄所使用的本機時區    |
+| `CACHE_FILE`              | 否   | `./data/catalog-cache.json`  | 中繼資料快取檔案                                 |
+| `HISTORY_FILE`            | 否   | `./data/rate-history.json`   | 分組倍率歷史檔案                                 |
+| `SUB2API_URL`             | 是   | Compose 中提供範例            | Sub2API 內網位址                                 |
+| `SUB2API_ADMIN_API_KEY`   | 是   | 空白                          | 僅由伺服器讀取分組與可用模型時使用的管理員 API Key |
 
 範例：
 
 ```env
-MODEL_IDS="gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna"
-PRESERVE_MODEL_ID_ORDER="false"
 NOTICE_MESSAGE="Model availability and pricing are subject to change."
+TZ=Asia/Singapore
+SUB2API_URL="http://sub2api:8080"
+SUB2API_ADMIN_API_KEY=""
 ```
 
-服務啟動時會立即與 models.dev 同步，之後每天在本機時間 00:00 同步一次。範例 Compose 將 `TZ` 設為 `Asia/Singapore`；如需使用其他時區，請修改此環境變數。瀏覽器造訪不會觸發同步。未收錄的 ID 仍會顯示，並使用通用圖示與中繼資料缺漏提示。卡片會顯示基礎價格，以及 models.dev 回傳的上下文階梯價格。
+服務啟動時會先讀取啟用且非專屬的 Sub2API 分組及其可用模型，再從 models.dev 取得中繼資料。之後每 10 分鐘檢查一次 Sub2API；模型集合變更時會立即重新整理 models.dev，未變更時只更新分組與價格。models.dev 仍會在本機時間每天 00:00 強制重新整理。每日倍率資料會彙整為開、高、低、收並顯示為 K 線。管理員 Key 不會傳送到瀏覽器，瀏覽器造訪也不會觸發同步。
 
 ## 本機開發
 
@@ -43,7 +46,7 @@ npm run check
 
 ## Docker 部署
 
-先在 [`docker-compose.yml`](docker-compose.yml) 中修改模型 ID 與通知內容。若要使用 GitHub Actions 發布的映像，請執行：
+先在 [`docker-compose.yml`](docker-compose.yml) 中設定 Sub2API 位址、管理員 API Key 與選填通知內容。若要使用 GitHub Actions 發布的映像，請執行：
 
 ```bash
 docker compose pull
@@ -57,6 +60,8 @@ docker compose -f docker-compose.local.yml up -d --build
 ```
 
 範例 Compose 將 `127.0.0.1:6001` 對應至容器連接埠 `3000`。如需使用其他監聽位址或連接埠，請修改 `docker-compose.yml` 中的連接埠對應。
+
+Compose 會建立名為 `sub2apiextra-modelsquare-data` 的命名磁碟區，用來保存目錄快取與倍率歷史。更新容器或映像時請保留該磁碟區；只有需要重設歷史記錄時才刪除它。
 
 修改 Compose 環境變數後，請使用 `docker compose up -d` 套用設定。不要只執行 `docker compose restart`，因為它會沿用現有容器中的舊環境變數。
 

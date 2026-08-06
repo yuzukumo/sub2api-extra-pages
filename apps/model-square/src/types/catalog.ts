@@ -31,6 +31,25 @@ export interface ModelPricingTier {
   pricing: ModelPriceFields
 }
 
+export interface CatalogGroup {
+  id: string
+  name: string
+  platform: string
+  rateMultiplier: number
+  status?: string
+}
+
+export interface CatalogGroupPricing {
+  groupId: string
+  pricing: ModelPricing
+}
+
+export interface CatalogRateHistoryPoint {
+  date: string
+  recordedAt: string
+  groups: Array<{ groupId: string; multiplier: number }>
+}
+
 export interface CatalogModel {
   id: string
   name: string
@@ -41,15 +60,18 @@ export interface CatalogModel {
   contextWindow?: number
   maxOutput?: number
   pricing: ModelPricing
+  groupPricing?: CatalogGroupPricing[]
 }
 
 export interface ModelCatalog {
-  version: 3
+  version: 5
   updatedAt: string
   currency: 'USD' | 'CNY'
   priceUnit: 'MTok' | 'KTok'
   notice?: string
   models: CatalogModel[]
+  groups?: CatalogGroup[]
+  rateHistory?: CatalogRateHistoryPoint[]
 }
 
 export interface CatalogFilters {
