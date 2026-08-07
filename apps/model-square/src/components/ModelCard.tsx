@@ -11,7 +11,7 @@ import {
   theme,
   Typography,
 } from 'antd'
-import { formatPrice, formatPriceUnit, formatTokenCount } from '../lib/catalog'
+import { formatMultiplier, formatPrice, formatPriceUnit, formatTokenCount } from '../lib/catalog'
 import { messages } from '../i18n'
 import type {
   CatalogModel,
@@ -176,7 +176,7 @@ export function ModelCard({ catalog, locale, model, selectedGroup }: ModelCardPr
             <Text type="secondary">{formatPriceUnit()}</Text>
             {groupPricing && (
               <Tag bordered={false} color="blue">
-                {selectedGroup!.name} ×{selectedGroup!.rateMultiplier}
+                {selectedGroup!.name} {formatMultiplier(selectedGroup!.rateMultiplier)}
               </Tag>
             )}
           </Space>

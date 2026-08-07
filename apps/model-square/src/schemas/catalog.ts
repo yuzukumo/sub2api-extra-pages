@@ -32,15 +32,6 @@ const groupPricingSchema = z.object({
   pricing: modelPricingSchema,
 })
 
-const historyPointSchema = z.object({
-  date: z.iso.date(),
-  recordedAt: z.iso.datetime(),
-  groups: z.array(z.object({
-    groupId: z.string().trim().min(1),
-    multiplier: z.number().nonnegative(),
-  })),
-})
-
 const modelSchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().trim().min(1),
@@ -62,5 +53,4 @@ export const catalogSchema = z.object({
   notice: z.string().trim().min(1).optional(),
   models: z.array(modelSchema),
   groups: z.array(groupSchema).optional(),
-  rateHistory: z.array(historyPointSchema).optional(),
 })

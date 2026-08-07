@@ -40,6 +40,7 @@ import type { ThemePreference } from './hooks/useThemePreference'
 import { formatUpdatedDate, localeOptions, messages } from './i18n'
 import {
   filterModels,
+  formatMultiplier,
   getProviders,
 } from './lib/catalog'
 import { catalogSchema } from './schemas/catalog'
@@ -137,7 +138,12 @@ function CatalogPage({
   const [query, setQuery] = useState('')
   const [provider, setProvider] = useState<string>()
   const [groupId, setGroupId] = useState<string>()
-  const catalogQuery = useQuery({ queryKey: ['catalog'], queryFn: loadCatalog })
+  const catalogQuery = useQuery({
+    queryKey: ['catalog'],
+    queryFn: loadCatalog,
+    refetchInterval: 10 * 60 * 1000,
+    refetchIntervalInBackground: true,
+  })
 
   const catalog = catalogQuery.data
   const providers = useMemo(() => getProviders(catalog?.models ?? []), [catalog])
@@ -237,7 +243,7 @@ function CatalogPage({
             value={selectedGroup?.id}
             onChange={setGroupId}
             options={groups.map((group) => ({
-              label: `${group.name} ×${group.rateMultiplier}`,
+              label: `${group.name} ${formatMultiplier(group.rateMultiplier)}`,
               value: group.id,
             }))}
             style={{ minWidth: 210, flex: screens.sm ? undefined : 1 }}
@@ -249,7 +255,6 @@ function CatalogPage({
         <Suspense fallback={<Skeleton active paragraph={{ rows: 6 }} />}>
           <RateHistoryChart
             groups={groups}
-            history={catalog?.rateHistory ?? []}
             locale={locale}
             selectedGroup={selectedGroup}
           />

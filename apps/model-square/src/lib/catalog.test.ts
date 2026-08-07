@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterModels, formatPrice, formatPriceUnit, formatTokenCount } from './catalog'
+import { filterModels, formatMultiplier, formatPrice, formatPriceUnit, formatTokenCount } from './catalog'
 import type { CatalogModel } from '../types/catalog'
 
 const models: CatalogModel[] = [
@@ -38,5 +38,6 @@ describe('catalog helpers', () => {
     expect(formatTokenCount(1_000_000)).toBe('1M')
     expect(formatPrice(2.5, { currency: 'USD', priceUnit: 'MTok' })).toBe('$2.5')
     expect(formatPriceUnit()).toBe('/1M')
+    expect(formatMultiplier(0.09)).toBe('0.09x')
   })
 })

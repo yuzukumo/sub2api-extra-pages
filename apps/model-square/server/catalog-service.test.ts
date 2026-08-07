@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CatalogService } from './catalog-service'
+import { CatalogService, selectGroupRateHistory } from './catalog-service'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -49,6 +49,31 @@ function createService(cacheFile: string): CatalogService {
 }
 
 describe('CatalogService', () => {
+  it('returns chronological raw snapshots for the selected group and range', () => {
+    const history = [
+      {
+        date: '2026-08-07',
+        recordedAt: '2026-08-07T11:50:00.000Z',
+        groups: [{ groupId: '1', multiplier: 1.2 }],
+      },
+      {
+        date: '2026-08-05',
+        recordedAt: '2026-08-05T11:59:00.000Z',
+        groups: [{ groupId: '1', multiplier: 0.8 }],
+      },
+      {
+        date: '2026-08-06',
+        recordedAt: '2026-08-06T12:00:00.000Z',
+        groups: [{ groupId: '1', multiplier: 1 }, { groupId: '2', multiplier: 1.5 }],
+      },
+    ]
+
+    expect(selectGroupRateHistory(history, '1', '24h', new Date('2026-08-07T12:00:00.000Z'))).toEqual([
+      { recordedAt: '2026-08-06T12:00:00.000Z', multiplier: 1 },
+      { recordedAt: '2026-08-07T11:50:00.000Z', multiplier: 1.2 },
+    ])
+  })
+
   it('builds the catalog from Sub2API models at startup and does not sync when it is read', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {

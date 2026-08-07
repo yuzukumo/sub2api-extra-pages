@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { CatalogService } from './catalog-service.js'
+import { rateHistoryRanges, type RateHistoryRange } from './types.js'
 
 const port = 3000
 const host = process.env.HOST || '0.0.0.0'
@@ -23,10 +24,26 @@ const app = Fastify({ logger: true })
 
 app.get('/api/catalog', async (_request, reply) => {
   try {
-    return { ...await catalogService.getCatalog(), notice }
+    const { rateHistory: _rateHistory, ...catalog } = await catalogService.getCatalog()
+    return { ...catalog, notice }
   } catch (error) {
     app.log.error(error)
     return reply.code(503).send({ message: 'Model catalog is temporarily unavailable' })
+  }
+})
+
+app.get<{ Querystring: { groupId?: string; range?: string } }>('/api/rate-history', async (request, reply) => {
+  const groupId = request.query.groupId?.trim()
+  const range = parseRateHistoryRange(request.query.range)
+  if (!groupId || !range) {
+    return reply.code(400).send({ message: 'A valid groupId and range are required' })
+  }
+
+  try {
+    return { points: await catalogService.getGroupRateHistory(groupId, range) }
+  } catch (error) {
+    app.log.error(error)
+    return reply.code(503).send({ message: 'Rate history is temporarily unavailable' })
   }
 })
 
@@ -44,3 +61,8 @@ if (existsSync(distRoot)) {
 }
 
 await app.listen({ host, port })
+
+function parseRateHistoryRange(value: string | undefined): RateHistoryRange | undefined {
+  if (value === undefined) return '24h'
+  return rateHistoryRanges.find((range) => range === value)
+}

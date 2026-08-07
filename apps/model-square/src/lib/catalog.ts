@@ -56,3 +56,7 @@ export function formatPrice(
 export function formatPriceUnit(): string {
   return '/1M'
 }
+
+export function formatMultiplier(value: number): string {
+  return `${value}x`
+}

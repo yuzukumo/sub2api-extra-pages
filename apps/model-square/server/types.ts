@@ -89,6 +89,15 @@ export interface CatalogRateHistoryPoint {
   }>
 }
 
+export interface CatalogGroupRateHistoryPoint {
+  recordedAt: string
+  multiplier: number
+}
+
+export const rateHistoryRanges = ['24h', '7d', '30d', 'all'] as const
+
+export type RateHistoryRange = (typeof rateHistoryRanges)[number]
+
 export interface CatalogModel {
   id: string
   name: string

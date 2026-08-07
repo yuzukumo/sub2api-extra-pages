@@ -8,7 +8,38 @@ import {
   fetchSub2ApiGroups,
   type ResolvedSub2ApiGroup,
 } from './sub2api.js'
-import type { CatalogRateHistoryPoint, CatalogResponse } from './types.js'
+import type {
+  CatalogGroupRateHistoryPoint,
+  CatalogRateHistoryPoint,
+  CatalogResponse,
+  RateHistoryRange,
+} from './types.js'
+
+const rateHistoryRangeMs: Record<Exclude<RateHistoryRange, 'all'>, number> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+}
+
+export function selectGroupRateHistory(
+  history: CatalogRateHistoryPoint[],
+  groupId: string,
+  range: RateHistoryRange,
+  now = new Date(),
+): CatalogGroupRateHistoryPoint[] {
+  const rangeMs = range === 'all' ? undefined : rateHistoryRangeMs[range]
+  const cutoff = rangeMs === undefined ? undefined : now.getTime() - rangeMs
+
+  return history
+    .flatMap((point) => {
+      const recordedAt = Date.parse(point.recordedAt)
+      if (!Number.isFinite(recordedAt) || (cutoff !== undefined && recordedAt < cutoff)) return []
+
+      const group = point.groups.find((item) => item.groupId === groupId)
+      return group ? [{ recordedAt: point.recordedAt, multiplier: group.multiplier }] : []
+    })
+    .sort((left, right) => left.recordedAt.localeCompare(right.recordedAt))
+}
 
 export interface CatalogServiceOptions {
   cacheFile: string
@@ -46,6 +77,14 @@ export class CatalogService {
   async getCatalog(): Promise<CatalogResponse> {
     if (!this.catalog) throw new Error('模型目录尚未同步')
     return this.catalog
+  }
+
+  async getGroupRateHistory(
+    groupId: string,
+    range: RateHistoryRange,
+  ): Promise<CatalogGroupRateHistoryPoint[]> {
+    await this.getCatalog()
+    return selectGroupRateHistory(this.rateHistory, groupId, range)
   }
 
   async sync(): Promise<CatalogResponse> {

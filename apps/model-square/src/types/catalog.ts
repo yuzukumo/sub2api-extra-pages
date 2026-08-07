@@ -44,12 +44,6 @@ export interface CatalogGroupPricing {
   pricing: ModelPricing
 }
 
-export interface CatalogRateHistoryPoint {
-  date: string
-  recordedAt: string
-  groups: Array<{ groupId: string; multiplier: number }>
-}
-
 export interface CatalogModel {
   id: string
   name: string
@@ -71,7 +65,6 @@ export interface ModelCatalog {
   notice?: string
   models: CatalogModel[]
   groups?: CatalogGroup[]
-  rateHistory?: CatalogRateHistoryPoint[]
 }
 
 export interface CatalogFilters {
