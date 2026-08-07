@@ -9,6 +9,9 @@ import type {
 
 export const RATE_HISTORY_MAX_SNAPSHOTS = 180 * 24 * 6
 
+const COMPOSITE_PLATFORMS = ['anthropic', 'gemini', 'openai', 'antigravity', 'grok'] as const
+const DEFAULT_MAPPING_PLATFORMS = new Set(['antigravity', 'grok'])
+
 interface Sub2ApiGroup {
   id?: number | string
   name?: string
@@ -27,9 +30,18 @@ interface Sub2ApiGroupsResponse {
 
 interface Sub2ApiAccount {
   id?: number | string
+  platform?: string
   status?: string
   schedulable?: boolean
   group_ids?: Array<number | string>
+  expires_at?: number | string | null
+  auto_pause_on_expired?: boolean
+  rate_limit_reset_at?: string | number | null
+  overload_until?: string | number | null
+  temp_unschedulable_until?: string | number | null
+  credentials?: {
+    model_mapping?: unknown
+  }
 }
 
 interface Sub2ApiAccountsResponse {
@@ -60,7 +72,7 @@ function normalizeGroup(group: Sub2ApiGroup): ResolvedSub2ApiGroup | undefined {
   return {
     id,
     name,
-    platform: String(group.platform ?? 'unknown').trim() || 'unknown',
+    platform: normalizePlatform(group.platform) || 'unknown',
     rateMultiplier,
     status: String(group.status ?? '').trim().toLowerCase() || undefined,
     models: [],
@@ -79,31 +91,66 @@ export async function fetchSub2ApiGroups(
   const groups = await fetchActiveGroups(baseUrl, adminApiKey, signal)
   const groupIds = new Set(groups.map((group) => group.id))
   const accounts = await fetchActiveAccounts(baseUrl, adminApiKey, signal)
+  const syncStartedAt = Date.now()
   const eligibleAccounts = accounts.filter((account) =>
-    isActiveSchedulableAccount(account) && accountGroupIds(account).some((groupId) => groupIds.has(groupId)),
+    isActiveSchedulableAccount(account, syncStartedAt) && accountGroupIds(account).some((groupId) => groupIds.has(groupId)),
   )
-  const accountModels = await mapWithConcurrency(eligibleAccounts, 8, async (account) => ({
-    account,
-    models: await fetchSub2ApiAccountModels(baseUrl, adminApiKey, accountId(account), signal),
-  }))
-  const modelsByGroup = new Map(groups.map((group) => [group.id, new Set<string>()]))
-
-  for (const { account, models } of accountModels) {
-    for (const groupId of accountGroupIds(account)) {
-      const groupModels = modelsByGroup.get(groupId)
-      if (!groupModels) continue
-      for (const model of models) groupModels.add(model)
+  const fallbackModelsByAccount = new Map<string, Promise<string[]>>()
+  const fallbackModels = (account: Sub2ApiAccount): Promise<string[]> => {
+    const id = accountId(account)
+    let models = fallbackModelsByAccount.get(id)
+    if (!models) {
+      models = fetchSub2ApiAccountModels(baseUrl, adminApiKey, id, signal)
+      fallbackModelsByAccount.set(id, models)
     }
+    return models
   }
 
-  return groups.flatMap((group) => {
-    const models = modelsByGroup.get(group.id)
-    if (!models?.size) return []
-    return [{
-      ...group,
-      models: [...models].sort((left, right) => left.localeCompare(right, 'en', { sensitivity: 'base' })),
-    }]
+  const resolvedGroups = await mapWithConcurrency(groups, 8, async (group) => {
+    const models = await resolveGroupModels(group, eligibleAccounts, fallbackModels)
+    if (!models.length) return undefined
+    return { ...group, models }
   })
+  return resolvedGroups.filter((group): group is ResolvedSub2ApiGroup => group !== undefined)
+}
+
+async function resolveGroupModels(
+  group: ResolvedSub2ApiGroup,
+  accounts: Sub2ApiAccount[],
+  fallbackModels: (account: Sub2ApiAccount) => Promise<string[]>,
+): Promise<string[]> {
+  const groupAccounts = accounts.filter((account) => accountGroupIds(account).includes(group.id))
+  if (group.platform === 'composite') {
+    const byPlatform = await Promise.all(COMPOSITE_PLATFORMS.map((platform) =>
+      resolvePlatformModels(platform, groupAccounts.filter((account) => accountPlatform(account) === platform), fallbackModels),
+    ))
+    return sortModelIds(byPlatform.flat())
+  }
+  return resolvePlatformModels(
+    group.platform,
+    groupAccounts.filter((account) => accountPlatform(account) === group.platform),
+    fallbackModels,
+  )
+}
+
+async function resolvePlatformModels(
+  platform: string,
+  accounts: Sub2ApiAccount[],
+  fallbackModels: (account: Sub2ApiAccount) => Promise<string[]>,
+): Promise<string[]> {
+  const mappedModelsByAccount = accounts.map((account) => ({ account, models: accountModelMappingIds(account) }))
+  const mappedAccounts = mappedModelsByAccount.filter(({ models }) => models.length > 0)
+  if (mappedAccounts.length === 0) {
+    return accounts[0] ? sortModelIds(await fallbackModels(accounts[0])) : []
+  }
+
+  const models = mappedAccounts.flatMap(({ models }) => models)
+  // Grok and Antigravity turn an omitted mapping into a platform default mapping.
+  if (DEFAULT_MAPPING_PLATFORMS.has(platform)) {
+    const defaultAccount = mappedModelsByAccount.find(({ models }) => models.length === 0)?.account
+    if (defaultAccount) models.push(...await fallbackModels(defaultAccount))
+  }
+  return sortModelIds(models)
 }
 
 async function fetchActiveGroups(
@@ -197,8 +244,55 @@ function accountGroupIds(account: Sub2ApiAccount): string[] {
   return [...new Set(account.group_ids.map((groupId) => String(groupId).trim()).filter(Boolean))]
 }
 
-function isActiveSchedulableAccount(account: Sub2ApiAccount): boolean {
-  return String(account.status ?? '').trim().toLowerCase() === 'active' && account.schedulable === true
+function accountPlatform(account: Sub2ApiAccount): string {
+  return normalizePlatform(account.platform)
+}
+
+function accountModelMappingIds(account: Sub2ApiAccount): string[] {
+  const mapping = account.credentials?.model_mapping
+  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) return []
+  return Object.entries(mapping)
+    .filter(([, target]) => typeof target === 'string')
+    .map(([model]) => model.trim())
+    .filter(Boolean)
+}
+
+function normalizePlatform(platform: unknown): string {
+  return String(platform ?? '').trim().toLowerCase()
+}
+
+function isActiveSchedulableAccount(account: Sub2ApiAccount, now: number): boolean {
+  return String(account.status ?? '').trim().toLowerCase() === 'active'
+    && account.schedulable === true
+    && !isFutureTimestamp(account.temp_unschedulable_until, now)
+    && !isFutureTimestamp(account.overload_until, now)
+    && !isFutureTimestamp(account.rate_limit_reset_at, now)
+    && !(account.auto_pause_on_expired === true && isPastTimestamp(account.expires_at, now))
+}
+
+function isFutureTimestamp(value: unknown, now: number): boolean {
+  const timestamp = parseTimestamp(value)
+  return timestamp !== undefined && timestamp > now
+}
+
+function isPastTimestamp(value: unknown, now: number): boolean {
+  const timestamp = parseTimestamp(value)
+  return timestamp !== undefined && timestamp <= now
+}
+
+function parseTimestamp(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 100_000_000_000 ? value : value * 1000
+  }
+  if (typeof value !== 'string' || !value.trim()) return undefined
+  const numeric = Number(value)
+  if (Number.isFinite(numeric)) return numeric > 100_000_000_000 ? numeric : numeric * 1000
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : undefined
+}
+
+function sortModelIds(models: string[]): string[] {
+  return [...new Set(models)].sort((left, right) => left.localeCompare(right, 'en', { sensitivity: 'base' }))
 }
 
 async function mapWithConcurrency<T, R>(

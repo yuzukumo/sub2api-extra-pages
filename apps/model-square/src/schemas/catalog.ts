@@ -55,7 +55,7 @@ const modelSchema = z.object({
 })
 
 export const catalogSchema = z.object({
-  version: z.literal(6),
+  version: z.literal(7),
   updatedAt: z.iso.date(),
   currency: z.enum(['USD', 'CNY']).default('USD'),
   priceUnit: z.enum(['MTok', 'KTok']).default('MTok'),

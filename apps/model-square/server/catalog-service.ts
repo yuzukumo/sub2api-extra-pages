@@ -168,7 +168,7 @@ export class CatalogService {
   private async loadCache(): Promise<void> {
     try {
       const cached = JSON.parse(await readFile(this.options.cacheFile, 'utf8')) as CatalogResponse
-      if (cached.version !== 6) return
+      if (cached.version !== 7) return
       this.catalog = cached
       this.modelIds = cached.models.map((model) => model.id)
       this.rateHistory = cached.rateHistory ?? []

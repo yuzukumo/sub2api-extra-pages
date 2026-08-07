@@ -31,7 +31,7 @@ function groupsResponse(multiplier = 1.5): Response {
 function accountsResponse(groupIds = [1]): Response {
   return new Response(JSON.stringify({
     data: {
-      items: [{ id: 1, status: 'active', schedulable: true, group_ids: groupIds }],
+      items: [{ id: 1, platform: 'openai', status: 'active', schedulable: true, group_ids: groupIds }],
     },
   }), { status: 200 })
 }
@@ -126,7 +126,7 @@ describe('CatalogService', () => {
     const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
     const cacheFile = join(directory, 'catalog.json')
     await writeFile(cacheFile, JSON.stringify({
-      version: 6,
+      version: 7,
       updatedAt: '2026-08-06',
       currency: 'USD',
       priceUnit: 'MTok',

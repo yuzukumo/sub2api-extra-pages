@@ -64,7 +64,7 @@ export interface CatalogModel {
 }
 
 export interface ModelCatalog {
-  version: 6
+  version: 7
   updatedAt: string
   currency: 'USD' | 'CNY'
   priceUnit: 'MTok' | 'KTok'

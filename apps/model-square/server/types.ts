@@ -105,7 +105,7 @@ export interface CatalogModel {
 }
 
 export interface CatalogResponse {
-  version: 6
+  version: 7
   updatedAt: string
   currency: 'USD'
   priceUnit: 'MTok'
