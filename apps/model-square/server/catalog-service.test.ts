@@ -28,8 +28,16 @@ function groupsResponse(multiplier = 1.5): Response {
   }), { status: 200 })
 }
 
-function groupModelsResponse(models = ['gpt-test']): Response {
-  return new Response(JSON.stringify({ data: { models } }), { status: 200 })
+function accountsResponse(groupIds = [1]): Response {
+  return new Response(JSON.stringify({
+    data: {
+      items: [{ id: 1, status: 'active', schedulable: true, group_ids: groupIds }],
+    },
+  }), { status: 200 })
+}
+
+function accountModelsResponse(models = ['gpt-test']): Response {
+  return new Response(JSON.stringify({ data: models.map((id) => ({ id })) }), { status: 200 })
 }
 
 function createService(cacheFile: string): CatalogService {
@@ -45,7 +53,8 @@ describe('CatalogService', () => {
     const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
-      if (url.includes('/models-list-candidates')) return groupModelsResponse()
+      if (url.includes('/admin/accounts/') && url.endsWith('/models')) return accountModelsResponse()
+      if (url.includes('/admin/accounts')) return accountsResponse()
       if (url.includes('/admin/groups')) return groupsResponse()
       return modelsResponse('gpt-test', 'GPT Test', 1)
     })
@@ -57,7 +66,7 @@ describe('CatalogService', () => {
       await service.getCatalog()
 
       expect((await service.getCatalog()).models.map((model) => model.id)).toEqual(['gpt-test'])
-      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(fetchMock).toHaveBeenCalledTimes(4)
     } finally {
       await rm(directory, { force: true, recursive: true })
     }
@@ -66,8 +75,8 @@ describe('CatalogService', () => {
   it('refreshes models.dev metadata when Sub2API available models change', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
     const replies = [
-      groupsResponse(), groupModelsResponse(['gpt-initial']), modelsResponse('gpt-initial', 'Initial name', 1),
-      groupsResponse(), groupModelsResponse(['gpt-updated']), modelsResponse('gpt-updated', 'Updated name', 2),
+      groupsResponse(), accountsResponse(), accountModelsResponse(['gpt-initial']), modelsResponse('gpt-initial', 'Initial name', 1),
+      groupsResponse(), accountsResponse(), accountModelsResponse(['gpt-updated']), modelsResponse('gpt-updated', 'Updated name', 2),
     ]
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => replies.shift()!)
 
@@ -90,9 +99,9 @@ describe('CatalogService', () => {
   it('retries pending models.dev metadata after a changed model set fails to refresh', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
     const replies = [
-      groupsResponse(), groupModelsResponse(['gpt-initial']), modelsResponse('gpt-initial', 'Initial name', 1),
-      groupsResponse(), groupModelsResponse(['gpt-updated']), new Response('', { status: 503 }),
-      groupsResponse(), groupModelsResponse(['gpt-updated']), modelsResponse('gpt-updated', 'Updated name', 2),
+      groupsResponse(), accountsResponse(), accountModelsResponse(['gpt-initial']), modelsResponse('gpt-initial', 'Initial name', 1),
+      groupsResponse(), accountsResponse(), accountModelsResponse(['gpt-updated']), new Response('', { status: 503 }),
+      groupsResponse(), accountsResponse(), accountModelsResponse(['gpt-updated']), modelsResponse('gpt-updated', 'Updated name', 2),
     ]
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => replies.shift()!)
 
@@ -117,7 +126,7 @@ describe('CatalogService', () => {
     const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
     const cacheFile = join(directory, 'catalog.json')
     await writeFile(cacheFile, JSON.stringify({
-      version: 5,
+      version: 6,
       updatedAt: '2026-08-06',
       currency: 'USD',
       priceUnit: 'MTok',
@@ -130,7 +139,8 @@ describe('CatalogService', () => {
     }), 'utf8')
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(groupsResponse(1.5))
-      .mockResolvedValueOnce(groupModelsResponse())
+      .mockResolvedValueOnce(accountsResponse())
+      .mockResolvedValueOnce(accountModelsResponse())
       .mockResolvedValueOnce(new Response('', { status: 503 }))
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
@@ -142,7 +152,7 @@ describe('CatalogService', () => {
       expect(catalog.rateHistory).toHaveLength(1)
       expect(catalog.groups).toEqual([expect.objectContaining({ id: '1', rateMultiplier: 1.5 })])
       expect(catalog.models[0]?.groupPricing).toEqual([{ groupId: '1', pricing: { input: 1.5 } }])
-      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(fetchMock).toHaveBeenCalledTimes(4)
     } finally {
       await rm(directory, { force: true, recursive: true })
     }

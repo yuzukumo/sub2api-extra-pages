@@ -16,10 +16,6 @@ interface Sub2ApiGroup {
   status?: string
   is_exclusive?: unknown
   rate_multiplier?: number
-  models_list_config?: {
-    enabled?: boolean
-    models?: string[]
-  }
 }
 
 interface Sub2ApiGroupsResponse {
@@ -29,15 +25,26 @@ interface Sub2ApiGroupsResponse {
   }
 }
 
-interface Sub2ApiGroupModelsResponse {
+interface Sub2ApiAccount {
+  id?: number | string
+  status?: string
+  schedulable?: boolean
+  group_ids?: Array<number | string>
+}
+
+interface Sub2ApiAccountsResponse {
   data?: {
-    models?: string[]
+    items?: Sub2ApiAccount[]
+    pages?: number
   }
+}
+
+interface Sub2ApiAccountModelsResponse {
+  data?: Array<string | { id?: string }>
 }
 
 export interface ResolvedSub2ApiGroup extends CatalogGroup {
   models: string[]
-  modelsListEnabled: boolean
 }
 
 function finiteNonNegative(value: unknown): number | undefined {
@@ -50,17 +57,13 @@ function normalizeGroup(group: Sub2ApiGroup): ResolvedSub2ApiGroup | undefined {
   if (!id || !name) return undefined
   const rateMultiplier = finiteNonNegative(group.rate_multiplier)
   if (rateMultiplier === undefined) return undefined
-  const models = Array.isArray(group.models_list_config?.models)
-    ? group.models_list_config.models.map((model) => model.trim()).filter(Boolean)
-    : undefined
   return {
     id,
     name,
     platform: String(group.platform ?? 'unknown').trim() || 'unknown',
     rateMultiplier,
     status: String(group.status ?? '').trim().toLowerCase() || undefined,
-    models: models ?? [],
-    modelsListEnabled: group.models_list_config?.enabled === true && (models?.length ?? 0) > 0,
+    models: [],
   }
 }
 
@@ -69,6 +72,41 @@ function isExclusiveGroup(group: Sub2ApiGroup): boolean {
 }
 
 export async function fetchSub2ApiGroups(
+  baseUrl: string,
+  adminApiKey: string,
+  signal?: AbortSignal,
+): Promise<ResolvedSub2ApiGroup[]> {
+  const groups = await fetchActiveGroups(baseUrl, adminApiKey, signal)
+  const groupIds = new Set(groups.map((group) => group.id))
+  const accounts = await fetchActiveAccounts(baseUrl, adminApiKey, signal)
+  const eligibleAccounts = accounts.filter((account) =>
+    isActiveSchedulableAccount(account) && accountGroupIds(account).some((groupId) => groupIds.has(groupId)),
+  )
+  const accountModels = await mapWithConcurrency(eligibleAccounts, 8, async (account) => ({
+    account,
+    models: await fetchSub2ApiAccountModels(baseUrl, adminApiKey, accountId(account), signal),
+  }))
+  const modelsByGroup = new Map(groups.map((group) => [group.id, new Set<string>()]))
+
+  for (const { account, models } of accountModels) {
+    for (const groupId of accountGroupIds(account)) {
+      const groupModels = modelsByGroup.get(groupId)
+      if (!groupModels) continue
+      for (const model of models) groupModels.add(model)
+    }
+  }
+
+  return groups.flatMap((group) => {
+    const models = modelsByGroup.get(group.id)
+    if (!models?.size) return []
+    return [{
+      ...group,
+      models: [...models].sort((left, right) => left.localeCompare(right, 'en', { sensitivity: 'base' })),
+    }]
+  })
+}
+
+async function fetchActiveGroups(
   baseUrl: string,
   adminApiKey: string,
   signal?: AbortSignal,
@@ -95,23 +133,43 @@ export async function fetchSub2ApiGroups(
       .filter((group) => !group.status || group.status === 'active'))
     if (page >= (payload.data?.pages ?? 1)) break
   }
-  return mapWithConcurrency(result, 8, async (group) => {
-    if (group.modelsListEnabled) return group
-    return {
-      ...group,
-      models: await fetchSub2ApiGroupModels(baseUrl, adminApiKey, group.id, signal),
-    }
-  })
+  return result
 }
 
-async function fetchSub2ApiGroupModels(
+async function fetchActiveAccounts(
   baseUrl: string,
   adminApiKey: string,
-  groupId: string,
+  signal?: AbortSignal,
+): Promise<Sub2ApiAccount[]> {
+  const root = `${baseUrl.replace(/\/+$/, '')}/api/v1/admin/accounts`
+  const result: Sub2ApiAccount[] = []
+  for (let page = 1; page <= 100; page += 1) {
+    const response = await fetch(`${root}?page=${page}&page_size=1000&status=active`, {
+      headers: {
+        Accept: 'application/json',
+        'x-api-key': adminApiKey,
+        'User-Agent': 'sub2api-model-square/0.2',
+      },
+      signal,
+    })
+    if (!response.ok) throw new Error(`Sub2API accounts returned ${response.status}`)
+    const payload = await response.json() as Sub2ApiAccountsResponse
+    const items = payload.data?.items
+    if (!Array.isArray(items)) throw new Error('Sub2API accounts response has no data.items')
+    result.push(...items)
+    if (page >= (payload.data?.pages ?? 1)) break
+  }
+  return result
+}
+
+async function fetchSub2ApiAccountModels(
+  baseUrl: string,
+  adminApiKey: string,
+  accountID: string,
   signal?: AbortSignal,
 ): Promise<string[]> {
   const root = baseUrl.replace(/\/+$/, '')
-  const response = await fetch(`${root}/api/v1/admin/groups/${encodeURIComponent(groupId)}/models-list-candidates`, {
+  const response = await fetch(`${root}/api/v1/admin/accounts/${encodeURIComponent(accountID)}/models`, {
     headers: {
       Accept: 'application/json',
       'x-api-key': adminApiKey,
@@ -119,11 +177,28 @@ async function fetchSub2ApiGroupModels(
     },
     signal,
   })
-  if (!response.ok) throw new Error(`Sub2API group models returned ${response.status}`)
-  const payload = await response.json() as Sub2ApiGroupModelsResponse
-  const models = payload.data?.models
-  if (!Array.isArray(models)) throw new Error('Sub2API group models response has no data.models')
-  return [...new Set(models.map((model) => model.trim()).filter(Boolean))]
+  if (!response.ok) throw new Error(`Sub2API account models returned ${response.status}`)
+  const payload = await response.json() as Sub2ApiAccountModelsResponse
+  if (!Array.isArray(payload.data)) throw new Error('Sub2API account models response has no data array')
+  return [...new Set(payload.data
+    .map((model) => typeof model === 'string' ? model : model?.id)
+    .map((model) => String(model ?? '').trim())
+    .filter(Boolean))]
+}
+
+function accountId(account: Sub2ApiAccount): string {
+  const id = String(account.id ?? '').trim()
+  if (!id) throw new Error('Sub2API account response has no id')
+  return id
+}
+
+function accountGroupIds(account: Sub2ApiAccount): string[] {
+  if (!Array.isArray(account.group_ids)) return []
+  return [...new Set(account.group_ids.map((groupId) => String(groupId).trim()).filter(Boolean))]
+}
+
+function isActiveSchedulableAccount(account: Sub2ApiAccount): boolean {
+  return String(account.status ?? '').trim().toLowerCase() === 'active' && account.schedulable === true
 }
 
 async function mapWithConcurrency<T, R>(

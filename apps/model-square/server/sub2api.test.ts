@@ -9,19 +9,35 @@ import {
 } from './sub2api'
 
 describe('Sub2API group integration', () => {
-  it('parses the v0.1.171 paginated group response and sends the admin API key server-side', async () => {
+  it('uses active schedulable account white lists and deduplicates them within each group', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
-      if (url.includes('/models-list-candidates')) {
-        return new Response(JSON.stringify({ data: { models: ['gpt-test', 'custom-model'] } }), { status: 200 })
+      if (url.includes('/admin/accounts/10/models')) {
+        return new Response(JSON.stringify({ data: [{ id: 'gpt-test' }, { id: 'shared-model' }] }), { status: 200 })
+      }
+      if (url.includes('/admin/accounts/11/models')) {
+        return new Response(JSON.stringify({ data: [{ id: 'custom-model' }, { id: 'shared-model' }] }), { status: 200 })
+      }
+      if (url.includes('/admin/accounts')) {
+        return new Response(JSON.stringify({
+          data: {
+            items: [
+              { id: 10, status: 'active', schedulable: true, group_ids: [1] },
+              { id: 11, status: 'active', schedulable: true, group_ids: [1] },
+              { id: 12, status: 'active', schedulable: false, group_ids: [2] },
+              { id: 13, status: 'inactive', schedulable: true, group_ids: [2] },
+            ],
+          },
+        }), { status: 200 })
       }
       return new Response(JSON.stringify({
         code: 0,
         data: {
           items: [
             { id: 1, name: 'Standard', platform: 'openai', status: 'active', rate_multiplier: 1.2 },
-            { id: 2, name: 'Disabled', platform: 'openai', status: 'inactive', rate_multiplier: 1 },
-            { id: 3, name: 'Private', platform: 'openai', status: 'active', is_exclusive: true, rate_multiplier: 1 },
+            { id: 2, name: 'Empty', platform: 'openai', status: 'active', rate_multiplier: 1 },
+            { id: 3, name: 'Disabled', platform: 'openai', status: 'inactive', rate_multiplier: 1 },
+            { id: 4, name: 'Private', platform: 'openai', status: 'active', is_exclusive: true, rate_multiplier: 1 },
           ],
         },
       }), { status: 200 })
@@ -30,20 +46,33 @@ describe('Sub2API group integration', () => {
     const groups = await fetchSub2ApiGroups('http://sub2api:8080/', 'admin-key')
 
     expect(groups).toEqual([expect.objectContaining({
-      id: '1', name: 'Standard', rateMultiplier: 1.2, models: ['gpt-test', 'custom-model'],
+      id: '1', name: 'Standard', rateMultiplier: 1.2,
+      models: ['custom-model', 'gpt-test', 'shared-model'],
     })])
     expect(fetchMock).toHaveBeenCalledWith(
       'http://sub2api:8080/api/v1/admin/groups?page=1&page_size=1000',
       expect.objectContaining({ headers: expect.objectContaining({ 'x-api-key': 'admin-key' }) }),
     )
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://sub2api:8080/api/v1/admin/groups/1/models-list-candidates',
+      'http://sub2api:8080/api/v1/admin/accounts?page=1&page_size=1000&status=active',
       expect.objectContaining({ headers: expect.objectContaining({ 'x-api-key': 'admin-key' }) }),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://sub2api:8080/api/v1/admin/accounts/10/models',
+      expect.objectContaining({ headers: expect.objectContaining({ 'x-api-key': 'admin-key' }) }),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://sub2api:8080/api/v1/admin/accounts/11/models',
+      expect.objectContaining({ headers: expect.objectContaining({ 'x-api-key': 'admin-key' }) }),
+    )
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'http://sub2api:8080/api/v1/admin/accounts/12/models',
+      expect.anything(),
     )
     fetchMock.mockRestore()
   })
 
-  it('uses Sub2API group models when calculating each model price', () => {
+  it('uses account-derived group models when calculating each model price', () => {
     const [model] = attachGroupPricing([{
       id: 'gpt-test',
       name: 'GPT Test',
@@ -54,11 +83,11 @@ describe('Sub2API group integration', () => {
     }], [
       {
         id: 'standard', name: 'Standard', platform: 'openai', rateMultiplier: 1.5,
-        modelsListEnabled: false, models: ['gpt-test'],
+        models: ['gpt-test'],
       },
       {
         id: 'other', name: 'Other', platform: 'openai', rateMultiplier: 0.8,
-        modelsListEnabled: false, models: ['other-model'],
+        models: ['other-model'],
       },
     ])
 
@@ -68,7 +97,7 @@ describe('Sub2API group integration', () => {
     }])
   })
 
-  it('does not assign pricing when a model is absent from a group candidate list', () => {
+  it('does not assign pricing when a model is absent from a group account list', () => {
     const [model] = attachGroupPricing([{
       id: 'gpt-test',
       name: 'GPT Test',
@@ -78,7 +107,6 @@ describe('Sub2API group integration', () => {
       pricing: { input: 2 },
     }], [{
       id: 'composite', name: 'Composite', platform: 'composite', rateMultiplier: 1.5, models: [],
-      modelsListEnabled: false,
     }])
 
     expect(model?.groupPricing).toBeUndefined()
@@ -86,8 +114,8 @@ describe('Sub2API group integration', () => {
 
   it('collects available model IDs once and sorts them alphabetically', () => {
     expect(collectAvailableModelIds([
-      { id: '1', name: 'One', platform: 'openai', rateMultiplier: 1, modelsListEnabled: false, models: ['model-z', 'model-a'] },
-      { id: '2', name: 'Two', platform: 'anthropic', rateMultiplier: 1, modelsListEnabled: false, models: ['model-a', 'model-b'] },
+      { id: '1', name: 'One', platform: 'openai', rateMultiplier: 1, models: ['model-z', 'model-a'] },
+      { id: '2', name: 'Two', platform: 'anthropic', rateMultiplier: 1, models: ['model-a', 'model-b'] },
     ])).toEqual(['model-a', 'model-b', 'model-z'])
   })
 
@@ -95,7 +123,7 @@ describe('Sub2API group integration', () => {
     const history = appendRateHistory([
       { date: '2026-08-05', recordedAt: '2026-08-05T00:00:00.000Z', groups: [{ groupId: '1', multiplier: 1 }] },
       { date: '2026-08-06', recordedAt: '2026-08-06T00:00:00.000Z', groups: [{ groupId: '1', multiplier: 1 }] },
-    ], [{ id: '1', name: 'Standard', platform: 'openai', rateMultiplier: 1.5, modelsListEnabled: false, models: [] }], '2026-08-06', '2026-08-06T12:00:00.000Z')
+    ], [{ id: '1', name: 'Standard', platform: 'openai', rateMultiplier: 1.5, models: [] }], '2026-08-06', '2026-08-06T12:00:00.000Z')
 
     expect(history).toEqual([
       { date: '2026-08-05', recordedAt: '2026-08-05T00:00:00.000Z', groups: [{ groupId: '1', multiplier: 1 }] },
@@ -112,7 +140,7 @@ describe('Sub2API group integration', () => {
     }))
     const result = appendRateHistory(
       history,
-      [{ id: '1', name: 'Standard', platform: 'openai', rateMultiplier: 1.5, modelsListEnabled: false, models: [] }],
+      [{ id: '1', name: 'Standard', platform: 'openai', rateMultiplier: 1.5, models: [] }],
       '2026-08-06',
       '2027-01-01T00:00:00.000Z',
     )

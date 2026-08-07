@@ -159,7 +159,7 @@ export class CatalogService {
   private createCatalog(baseCatalog: CatalogResponse): CatalogResponse {
     return {
       ...baseCatalog,
-      groups: this.groups.map(({ models, modelsListEnabled, ...group }) => group),
+      groups: this.groups.map(({ models, ...group }) => group),
       rateHistory: this.rateHistory,
       models: attachGroupPricing(baseCatalog.models, this.groups),
     }
@@ -168,7 +168,7 @@ export class CatalogService {
   private async loadCache(): Promise<void> {
     try {
       const cached = JSON.parse(await readFile(this.options.cacheFile, 'utf8')) as CatalogResponse
-      if (cached.version !== 5) return
+      if (cached.version !== 6) return
       this.catalog = cached
       this.modelIds = cached.models.map((model) => model.id)
       this.rateHistory = cached.rateHistory ?? []
@@ -177,7 +177,6 @@ export class CatalogService {
         models: cached.models
           .filter((model) => model.groupPricing?.some((item) => item.groupId === group.id))
           .map((model) => model.id),
-        modelsListEnabled: false,
       }))
     } catch {
       // The first successful upstream sync creates the cache.

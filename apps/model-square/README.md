@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md) | [繁體中文（台灣）](README.zh
 
 A read-only model listing designed to be embedded in Sub2API. The page uses React, TypeScript, and Ant Design. Model icons come from `@lobehub/icons`, and model metadata comes from [models.dev](https://models.dev/).
 
-The service has no configuration page, administration API, or write API. It automatically lists the available models and rate multipliers in active, non-exclusive Sub2API groups.
+The service has no configuration page, administration API, or write API. It automatically lists the available models and rate multipliers in active, non-exclusive Sub2API groups that have at least one active, schedulable account.
 
 ## Configuration
 
@@ -26,7 +26,7 @@ SUB2API_URL="http://sub2api:8080"
 SUB2API_ADMIN_API_KEY=""
 ```
 
-At startup, the service reads active, non-exclusive Sub2API groups and their available models, then obtains metadata from models.dev. It rechecks Sub2API every 10 minutes; a changed model set immediately triggers a models.dev refresh, while an unchanged set only updates groups and prices. Models.dev is also refreshed daily at 00:00 local time. The resulting daily open/high/low/close multiplier history is displayed as a Stock chart. The admin key is never sent to the browser, and browser visits do not trigger synchronization.
+At startup, the service reads active, non-exclusive Sub2API groups and their available models, then obtains metadata from models.dev. Each group's model set is the deduplicated union of the available model IDs from all of its active, schedulable accounts, so account model whitelists and mappings are respected. It rechecks Sub2API every 10 minutes; a changed model set immediately triggers a models.dev refresh, while an unchanged set only updates groups and prices. Models.dev is also refreshed daily at 00:00 local time. The resulting daily open/high/low/close multiplier history is displayed as a Stock chart. The admin key is never sent to the browser, and browser visits do not trigger synchronization.
 
 The Sub2API service and this container must be able to reach each other over the configured Docker network. Use a dedicated admin API key where possible; the model square never calls write endpoints.
 
