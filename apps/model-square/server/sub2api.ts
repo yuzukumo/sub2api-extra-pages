@@ -4,10 +4,7 @@ import type {
   CatalogModel,
   CatalogPricing,
   CatalogPricingTier,
-  CatalogRateHistoryPoint,
 } from './types.js'
-
-export const RATE_HISTORY_MAX_SNAPSHOTS = 180 * 24 * 6
 
 const COMPOSITE_PLATFORMS = ['anthropic', 'gemini', 'openai', 'antigravity', 'grok'] as const
 const DEFAULT_MAPPING_PLATFORMS = new Set(['antigravity', 'grok'])
@@ -367,20 +364,4 @@ export function attachGroupPricing(
       }))
     return withGroupPricing(model, groupPricing)
   })
-}
-
-export function appendRateHistory(
-  history: CatalogRateHistoryPoint[],
-  groups: ResolvedSub2ApiGroup[],
-  date: string,
-  recordedAt = new Date().toISOString(),
-): CatalogRateHistoryPoint[] {
-  const point: CatalogRateHistoryPoint = {
-    date,
-    recordedAt,
-    groups: groups.map((group) => ({ groupId: group.id, multiplier: group.rateMultiplier })),
-  }
-  return [...history, point]
-    .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt))
-    .slice(-RATE_HISTORY_MAX_SNAPSHOTS)
 }

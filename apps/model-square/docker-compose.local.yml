@@ -11,8 +11,3 @@ services:
       NOTICE_MESSAGE: "Model availability and pricing are subject to change."
       SUB2API_URL: "http://sub2api:8080"
       SUB2API_ADMIN_API_KEY: ""
-    volumes:
-      - sub2apiextra-modelsquare-data:/app/data
-
-volumes:
-  sub2apiextra-modelsquare-data:

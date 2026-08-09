@@ -16,8 +16,7 @@ ENV NODE_ENV=production \
     TZ=Asia/Singapore \
     HOST=0.0.0.0 \
     STATIC_DIR=/app/dist \
-    CACHE_FILE=/app/data/catalog-cache.json \
-    HISTORY_FILE=/app/data/rate-history.json
+    CACHE_FILE=/app/data/catalog-cache.json
 
 WORKDIR /app
 

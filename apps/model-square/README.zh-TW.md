@@ -11,9 +11,8 @@
 | 變數                      | 必填 | 預設值                        | 說明                                             |
 | ------------------------- | ---- | ----------------------------- | ------------------------------------------------ |
 | `NOTICE_MESSAGE`          | 否   | Compose 中提供範例            | 顯示於頁面頂端的一則通知，留空則不顯示           |
-| `TZ`                      | 否   | `Asia/Singapore`              | 每天 00:00 同步與倍率歷史記錄所使用的本機時區    |
+| `TZ`                      | 否   | `Asia/Singapore`              | 每天 00:00 同步中繼資料所使用的本機時區          |
 | `CACHE_FILE`              | 否   | `./data/catalog-cache.json`  | 中繼資料快取檔案                                 |
-| `HISTORY_FILE`            | 否   | `./data/rate-history.json`   | 分組倍率歷史檔案                                 |
 | `SUB2API_URL`             | 是   | Compose 中提供範例            | Sub2API 內網位址                                 |
 | `SUB2API_ADMIN_API_KEY`   | 是   | 空白                          | 僅由伺服器讀取分組與可用模型時使用的管理員 API Key |
 
@@ -26,7 +25,7 @@ SUB2API_URL="http://sub2api:8080"
 SUB2API_ADMIN_API_KEY=""
 ```
 
-服務啟動時會先讀取啟用且非專屬的 Sub2API 分組及其可用模型，再從 models.dev 取得中繼資料。模型列表遵循 Sub2API 的 `/v1/models` 邏輯：依分組和平台彙整所有已啟用且可排程帳號的 `model_mapping` 模型 ID 聯集並去除重複；若該分組的平台沒有帳號設定對應，則回退至該平台的預設模型集。之後每 10 分鐘檢查一次 Sub2API；模型集合變更時會立即重新整理 models.dev，未變更時只更新分組與價格。models.dev 仍會在本機時間每天 00:00 強制重新整理。每次檢查 Sub2API 都會記錄一筆倍率快照。頁面將這些原始快照顯示為持續延伸的折線圖，可查看最近 24 小時、7 天、30 天或所有保留的歷史。瀏覽器每分鐘只重新整理本機快取的時間線，不會觸發同步。管理員 Key 不會傳送到瀏覽器。
+服務啟動時會先讀取啟用且非專屬的 Sub2API 分組及其可用模型，再從 models.dev 取得中繼資料。模型列表遵循 Sub2API 的 `/v1/models` 邏輯：依分組和平台彙整所有已啟用且可排程帳號的 `model_mapping` 模型 ID 聯集並去除重複；若該分組的平台沒有帳號設定對應，則回退至該平台的預設模型集。之後每 5 分鐘檢查一次 Sub2API；模型集合變更時會立即重新整理 models.dev，未變更時只更新分組與價格。models.dev 仍會在本機時間每天 00:00 強制重新整理。瀏覽器只在頁面開啟時讀取一次本機目錄，不會觸發同步；如需查看更新後的資料，請重新整理頁面。管理員 Key 不會傳送到瀏覽器。
 
 ## 本機開發
 
@@ -60,8 +59,6 @@ docker compose -f docker-compose.local.yml up -d --build
 ```
 
 範例 Compose 將 `127.0.0.1:6001` 對應至容器連接埠 `3000`。如需使用其他監聽位址或連接埠，請修改 `docker-compose.yml` 中的連接埠對應。
-
-Compose 會建立名為 `sub2apiextra-modelsquare-data` 的命名磁碟區，用來保存目錄快取與倍率歷史。更新容器或映像時請保留該磁碟區；只有需要重設歷史記錄時才刪除它。
 
 修改 Compose 環境變數後，請使用 `docker compose up -d` 套用設定。不要只執行 `docker compose restart`，因為它會沿用現有容器中的舊環境變數。
 

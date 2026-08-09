@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   ClockCircleOutlined,
@@ -47,10 +47,6 @@ import { catalogSchema } from './schemas/catalog'
 import type { Locale, ModelCatalog } from './types/catalog'
 
 const { Text, Title } = Typography
-const RateHistoryChart = lazy(async () => {
-  const module = await import('./components/RateHistoryChart')
-  return { default: module.RateHistoryChart }
-})
 
 async function loadCatalog(): Promise<ModelCatalog> {
   const response = await fetch(`${import.meta.env.BASE_URL}api/catalog`, {
@@ -141,8 +137,8 @@ function CatalogPage({
   const catalogQuery = useQuery({
     queryKey: ['catalog'],
     queryFn: loadCatalog,
-    refetchInterval: 10 * 60 * 1000,
-    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   const catalog = catalogQuery.data
@@ -250,16 +246,6 @@ function CatalogPage({
           />
         )}
       </Flex>
-
-      {groups.length > 0 && (
-        <Suspense fallback={<Skeleton active paragraph={{ rows: 6 }} />}>
-          <RateHistoryChart
-            groups={groups}
-            locale={locale}
-            selectedGroup={selectedGroup}
-          />
-        </Suspense>
-      )}
 
       {catalogQuery.isLoading ? (
         <ResponsiveCardGrid gap={token.paddingSM}>

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CatalogService, selectGroupRateHistory } from './catalog-service'
+import { CatalogService } from './catalog-service'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -49,31 +49,6 @@ function createService(cacheFile: string): CatalogService {
 }
 
 describe('CatalogService', () => {
-  it('returns chronological raw snapshots for the selected group and range', () => {
-    const history = [
-      {
-        date: '2026-08-07',
-        recordedAt: '2026-08-07T11:50:00.000Z',
-        groups: [{ groupId: '1', multiplier: 1.2 }],
-      },
-      {
-        date: '2026-08-05',
-        recordedAt: '2026-08-05T11:59:00.000Z',
-        groups: [{ groupId: '1', multiplier: 0.8 }],
-      },
-      {
-        date: '2026-08-06',
-        recordedAt: '2026-08-06T12:00:00.000Z',
-        groups: [{ groupId: '1', multiplier: 1 }, { groupId: '2', multiplier: 1.5 }],
-      },
-    ]
-
-    expect(selectGroupRateHistory(history, '1', '24h', new Date('2026-08-07T12:00:00.000Z'))).toEqual([
-      { recordedAt: '2026-08-06T12:00:00.000Z', multiplier: 1 },
-      { recordedAt: '2026-08-07T11:50:00.000Z', multiplier: 1.2 },
-    ])
-  })
-
   it('builds the catalog from Sub2API models at startup and does not sync when it is read', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'sub2api-catalog-'))
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -160,7 +135,6 @@ describe('CatalogService', () => {
         pricing: { input: 1 }, groupPricing: [{ groupId: '1', pricing: { input: 1 } }],
       }],
       groups: [{ id: '1', name: 'Standard', platform: 'openai', rateMultiplier: 1 }],
-      rateHistory: [],
     }), 'utf8')
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(groupsResponse(1.5))
@@ -174,7 +148,6 @@ describe('CatalogService', () => {
       await service.initialize()
 
       const catalog = await service.getCatalog()
-      expect(catalog.rateHistory).toHaveLength(1)
       expect(catalog.groups).toEqual([expect.objectContaining({ id: '1', rateMultiplier: 1.5 })])
       expect(catalog.models[0]?.groupPricing).toEqual([{ groupId: '1', pricing: { input: 1.5 } }])
       expect(fetchMock).toHaveBeenCalledTimes(4)

@@ -11,9 +11,8 @@
 | 变量                      | 必填 | 默认值                        | 说明                                             |
 | ------------------------- | ---- | ----------------------------- | ------------------------------------------------ |
 | `NOTICE_MESSAGE`        | 否   | Compose 中提供示例            | 页面顶部显示的一条通知，留空则不显示             |
-| `TZ`                    | 否   | `Asia/Singapore`            | 每天 00:00 同步和倍率历史记录所使用的本地时区    |
+| `TZ`                    | 否   | `Asia/Singapore`            | 每天 00:00 同步元数据所使用的本地时区            |
 | `CACHE_FILE`            | 否   | `./data/catalog-cache.json` | 元数据缓存文件                                   |
-| `HISTORY_FILE`          | 否   | `./data/rate-history.json`  | 分组倍率历史文件                                 |
 | `SUB2API_URL`           | 是   | Compose 中提供示例            | Sub2API 内网地址                                 |
 | `SUB2API_ADMIN_API_KEY` | 是   | 空                            | 仅由服务端读取分组和可用模型所用的管理员 API Key |
 
@@ -26,7 +25,7 @@ SUB2API_URL="http://sub2api:8080"
 SUB2API_ADMIN_API_KEY=""
 ```
 
-服务启动时会先读取启用且非专属的 Sub2API 分组及其可用模型，再从 models.dev 获取元数据。模型列表遵循 Sub2API 的 `/v1/models` 逻辑：按分组和平台汇总所有已启用且可调度账号的 `model_mapping` 模型 ID 并集并去重；如果该分组的平台没有账号配置映射，则回退到该平台的默认模型集。之后每 10 分钟检查一次 Sub2API；模型集合发生变化时会立即刷新 models.dev，未变化时只更新分组和价格。models.dev 仍会在本地时间每天 00:00 强制刷新。每次检查 Sub2API 都会记录一条倍率快照。页面将这些原始快照显示为持续延伸的折线图，可查看最近 24 小时、7 天、30 天或全部保留历史。浏览器每分钟只刷新本地缓存的时间线，不会触发同步。管理员 Key 不会发送到浏览器。
+服务启动时会先读取启用且非专属的 Sub2API 分组及其可用模型，再从 models.dev 获取元数据。模型列表遵循 Sub2API 的 `/v1/models` 逻辑：按分组和平台汇总所有已启用且可调度账号的 `model_mapping` 模型 ID 并集并去重；如果该分组的平台没有账号配置映射，则回退到该平台的默认模型集。之后每 5 分钟检查一次 Sub2API；模型集合发生变化时会立即刷新 models.dev，未变化时只更新分组和价格。models.dev 仍会在本地时间每天 00:00 强制刷新。浏览器只在页面打开时读取一次本地目录，不会触发同步；如需查看更新后的数据，请刷新页面。管理员 Key 不会发送到浏览器。
 
 ## 本地开发
 
@@ -60,8 +59,6 @@ docker compose -f docker-compose.local.yml up -d --build
 ```
 
 示例 Compose 将 `127.0.0.1:6001` 映射到容器端口 `3000`。如需使用其他监听地址或端口，请修改 `docker-compose.yml` 中的端口映射。
-
-Compose 会创建名为 `sub2apiextra-modelsquare-data` 的命名卷，用于保存目录缓存和倍率历史。更新容器或镜像时请保留该卷；只有需要重置历史记录时才删除它。
 
 修改 Compose 环境变量后，使用 `docker compose up -d` 应用配置。不要只执行 `docker compose restart`，因为它会继续使用已有容器中的旧环境变量。
 

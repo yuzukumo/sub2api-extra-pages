@@ -1,11 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  appendRateHistory,
   attachGroupPricing,
   collectAvailableModelIds,
   fetchSub2ApiGroups,
   multiplyPricing,
-  RATE_HISTORY_MAX_SNAPSHOTS,
 } from './sub2api'
 
 describe('Sub2API group integration', () => {
@@ -156,37 +154,6 @@ describe('Sub2API group integration', () => {
       { id: '1', name: 'One', platform: 'openai', rateMultiplier: 1, models: ['model-z', 'model-a'] },
       { id: '2', name: 'Two', platform: 'anthropic', rateMultiplier: 1, models: ['model-a', 'model-b'] },
     ])).toEqual(['model-a', 'model-b', 'model-z'])
-  })
-
-  it('records periodic snapshots for each group', () => {
-    const history = appendRateHistory([
-      { date: '2026-08-05', recordedAt: '2026-08-05T00:00:00.000Z', groups: [{ groupId: '1', multiplier: 1 }] },
-      { date: '2026-08-06', recordedAt: '2026-08-06T00:00:00.000Z', groups: [{ groupId: '1', multiplier: 1 }] },
-    ], [{ id: '1', name: 'Standard', platform: 'openai', rateMultiplier: 1.5, models: [] }], '2026-08-06', '2026-08-06T12:00:00.000Z')
-
-    expect(history).toEqual([
-      { date: '2026-08-05', recordedAt: '2026-08-05T00:00:00.000Z', groups: [{ groupId: '1', multiplier: 1 }] },
-      { date: '2026-08-06', recordedAt: '2026-08-06T00:00:00.000Z', groups: [{ groupId: '1', multiplier: 1 }] },
-      { date: '2026-08-06', recordedAt: '2026-08-06T12:00:00.000Z', groups: [{ groupId: '1', multiplier: 1.5 }] },
-    ])
-  })
-
-  it('retains the newest 180 days of ten-minute snapshots', () => {
-    const history = Array.from({ length: RATE_HISTORY_MAX_SNAPSHOTS }, (_, index) => ({
-      date: '2026-08-06',
-      recordedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
-      groups: [{ groupId: '1', multiplier: 1 }],
-    }))
-    const result = appendRateHistory(
-      history,
-      [{ id: '1', name: 'Standard', platform: 'openai', rateMultiplier: 1.5, models: [] }],
-      '2026-08-06',
-      '2027-01-01T00:00:00.000Z',
-    )
-
-    expect(result).toHaveLength(RATE_HISTORY_MAX_SNAPSHOTS)
-    expect(result[0]?.recordedAt).toBe(history[1]?.recordedAt)
-    expect(result.at(-1)?.recordedAt).toBe('2027-01-01T00:00:00.000Z')
   })
 
   it('multiplies all token price categories including tier prices', () => {

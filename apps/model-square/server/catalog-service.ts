@@ -2,48 +2,15 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fetchModelsDev, normalizeCatalog } from './models-dev.js'
 import {
-  appendRateHistory,
   attachGroupPricing,
   collectAvailableModelIds,
   fetchSub2ApiGroups,
   type ResolvedSub2ApiGroup,
 } from './sub2api.js'
-import type {
-  CatalogGroupRateHistoryPoint,
-  CatalogRateHistoryPoint,
-  CatalogResponse,
-  RateHistoryRange,
-} from './types.js'
-
-const rateHistoryRangeMs: Record<Exclude<RateHistoryRange, 'all'>, number> = {
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
-}
-
-export function selectGroupRateHistory(
-  history: CatalogRateHistoryPoint[],
-  groupId: string,
-  range: RateHistoryRange,
-  now = new Date(),
-): CatalogGroupRateHistoryPoint[] {
-  const rangeMs = range === 'all' ? undefined : rateHistoryRangeMs[range]
-  const cutoff = rangeMs === undefined ? undefined : now.getTime() - rangeMs
-
-  return history
-    .flatMap((point) => {
-      const recordedAt = Date.parse(point.recordedAt)
-      if (!Number.isFinite(recordedAt) || (cutoff !== undefined && recordedAt < cutoff)) return []
-
-      const group = point.groups.find((item) => item.groupId === groupId)
-      return group ? [{ recordedAt: point.recordedAt, multiplier: group.multiplier }] : []
-    })
-    .sort((left, right) => left.recordedAt.localeCompare(right.recordedAt))
-}
+import type { CatalogResponse } from './types.js'
 
 export interface CatalogServiceOptions {
   cacheFile: string
-  historyFile?: string
   sub2ApiUrl?: string
   sub2ApiAdminApiKey?: string
 }
@@ -52,7 +19,6 @@ export class CatalogService {
   private catalog?: CatalogResponse
   private syncPromise?: Promise<CatalogResponse>
   private groupSyncPromise?: Promise<void>
-  private rateHistory: CatalogRateHistoryPoint[] = []
   private groups: ResolvedSub2ApiGroup[] = []
   private modelIds: string[] = []
   private metadataRefreshPending = true
@@ -61,7 +27,6 @@ export class CatalogService {
 
   async initialize(): Promise<void> {
     await this.loadCache()
-    await this.loadHistory()
 
     let startupError: unknown
     try {
@@ -77,14 +42,6 @@ export class CatalogService {
   async getCatalog(): Promise<CatalogResponse> {
     if (!this.catalog) throw new Error('模型目录尚未同步')
     return this.catalog
-  }
-
-  async getGroupRateHistory(
-    groupId: string,
-    range: RateHistoryRange,
-  ): Promise<CatalogGroupRateHistoryPoint[]> {
-    await this.getCatalog()
-    return selectGroupRateHistory(this.rateHistory, groupId, range)
   }
 
   async sync(): Promise<CatalogResponse> {
@@ -139,7 +96,7 @@ export class CatalogService {
       } catch (error) {
         console.error('[catalog] periodic Sub2API group sync failed', error)
       }
-    }, 10 * 60 * 1000)
+    }, 5 * 60 * 1000)
     timer.unref()
   }
 
@@ -188,10 +145,6 @@ export class CatalogService {
     )
     this.groups = groups
     this.modelIds = collectAvailableModelIds(groups)
-    const now = new Date()
-    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    this.rateHistory = appendRateHistory(this.rateHistory, groups, date, now.toISOString())
-    await this.writeHistory(this.rateHistory)
     return { modelIds: this.modelIds }
   }
 
@@ -199,7 +152,6 @@ export class CatalogService {
     return {
       ...baseCatalog,
       groups: this.groups.map(({ models, ...group }) => group),
-      rateHistory: this.rateHistory,
       models: attachGroupPricing(baseCatalog.models, this.groups),
     }
   }
@@ -210,7 +162,6 @@ export class CatalogService {
       if (cached.version !== 7) return
       this.catalog = cached
       this.modelIds = cached.models.map((model) => model.id)
-      this.rateHistory = cached.rateHistory ?? []
       this.groups = (cached.groups ?? []).map((group) => ({
         ...group,
         models: cached.models
@@ -222,15 +173,6 @@ export class CatalogService {
     }
   }
 
-  private async loadHistory(): Promise<void> {
-    try {
-      const history = JSON.parse(await readFile(this.historyFile, 'utf8')) as CatalogRateHistoryPoint[]
-      if (Array.isArray(history)) this.rateHistory = history
-    } catch {
-      // The first successful Sub2API sync creates the history file.
-    }
-  }
-
   private async writeCache(catalog: CatalogResponse): Promise<void> {
     const cacheFile = resolve(this.options.cacheFile)
     const temporary = `${cacheFile}.tmp`
@@ -239,20 +181,8 @@ export class CatalogService {
     await rename(temporary, cacheFile)
   }
 
-  private async writeHistory(history: CatalogRateHistoryPoint[]): Promise<void> {
-    const historyFile = resolve(this.historyFile)
-    const temporary = `${historyFile}.tmp`
-    await mkdir(dirname(historyFile), { recursive: true })
-    await writeFile(temporary, `${JSON.stringify(history, null, 2)}\n`, 'utf8')
-    await rename(temporary, historyFile)
-  }
-
   private requireSub2Api(): void {
     if (!this.hasSub2Api) throw new Error('SUB2API_URL and SUB2API_ADMIN_API_KEY are required')
-  }
-
-  private get historyFile(): string {
-    return this.options.historyFile ?? `${this.options.cacheFile}.history.json`
   }
 
   private get hasSub2Api(): boolean {

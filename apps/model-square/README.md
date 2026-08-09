@@ -11,9 +11,8 @@ The service has no configuration page, administration API, or write API. It auto
 | Variable                  | Required | Default                       | Description                                                               |
 | ------------------------- | -------- | ----------------------------- | ------------------------------------------------------------------------- |
 | `NOTICE_MESSAGE`          | No       | Example provided in Compose   | A single notice displayed at the top of the page; leave empty to hide it |
-| `TZ`                      | No       | `Asia/Singapore`              | Local timezone for daily 00:00 sync and rate-history timestamps          |
-| `CACHE_FILE`              | No       | `./data/catalog-cache.json`  | Metadata cache file                                                       |
-| `HISTORY_FILE`            | No       | `./data/rate-history.json`   | Sub2API group multiplier history                                          |
+| `TZ`                      | No       | `Asia/Singapore`              | Local timezone for the daily 00:00 metadata sync                          |
+| `CACHE_FILE`              | No       | `./data/catalog-cache.json`   | Metadata cache file                                                       |
 | `SUB2API_URL`             | Yes      | Example provided in Compose   | Internal URL of the Sub2API service                                       |
 | `SUB2API_ADMIN_API_KEY`   | Yes      | Empty                         | Admin API key used only by this server to read groups and available models |
 
@@ -26,7 +25,7 @@ SUB2API_URL="http://sub2api:8080"
 SUB2API_ADMIN_API_KEY=""
 ```
 
-At startup, the service reads active, non-exclusive Sub2API groups and their available models, then obtains metadata from models.dev. The model list follows Sub2API's `/v1/models` behavior: for each group and platform, it deduplicates the union of model IDs from all active, schedulable account `model_mapping` entries. When no account for that group and platform has a mapping, it falls back to the platform's default models. It rechecks Sub2API every 10 minutes; a changed model set immediately triggers a models.dev refresh, while an unchanged set only updates groups and prices. Models.dev is also refreshed daily at 00:00 local time. Each Sub2API check records one multiplier snapshot. The page renders those raw snapshots as a continuously extending line chart and can show the latest 24 hours, 7 days, 30 days, or all retained history. The browser refreshes the local cached timeline every minute; it does not trigger synchronization. The admin key is never sent to the browser.
+At startup, the service reads active, non-exclusive Sub2API groups and their available models, then obtains metadata from models.dev. The model list follows Sub2API's `/v1/models` behavior: for each group and platform, it deduplicates the union of model IDs from all active, schedulable account `model_mapping` entries. When no account for that group and platform has a mapping, it falls back to the platform's default models. It rechecks Sub2API every 5 minutes; a changed model set immediately triggers a models.dev refresh, while an unchanged set only updates groups and prices. Models.dev is also refreshed daily at 00:00 local time. The browser reads the local catalog once when the page opens and does not trigger synchronization; reload the page to see newer data. The admin key is never sent to the browser.
 
 The Sub2API service and this container must be able to reach each other over the configured Docker network. Use a dedicated admin API key where possible; the model square never calls write endpoints.
 
@@ -62,8 +61,6 @@ docker compose -f docker-compose.local.yml up -d --build
 ```
 
 The provided Compose file maps `127.0.0.1:6001` to port `3000` in the container. Change the host address or port mapping in `docker-compose.yml` when needed.
-
-Compose creates the named volume `sub2apiextra-modelsquare-data` for the catalog cache and multiplier history. Keep it when replacing the container or image; remove it only when you want to reset the recorded history.
 
 After changing the Compose environment, apply it with `docker compose up -d`. Do not use only `docker compose restart`, because it preserves the old container environment.
 
