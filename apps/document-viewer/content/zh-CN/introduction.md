@@ -16,6 +16,12 @@ flowchart LR
   B --> A
 ```
 
+## 视频示例
+
+```video
+../media/video-example.mp4
+```
+
 ## 服务特点
 
 - 统一的请求格式

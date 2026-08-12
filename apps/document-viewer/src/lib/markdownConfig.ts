@@ -42,7 +42,7 @@ export function createMarkdownConfig(): MarkedExtension {
     emptyLangClass: 'hljs',
     langPrefix: 'hljs language-',
     highlight(code, language) {
-      if (language === 'mermaid') return code
+      if (language === 'mermaid' || language === 'video') return code
       if (language && highlight.getLanguage(language)) {
         return highlight.highlight(code, { language }).value
       }

@@ -94,3 +94,46 @@ export function resolveContentUrl(
   const relativePath = url.replace(/^(\.\.\/|\.\/)+/, '')
   return contentUrl(`${assetBase}${relativePath}`)
 }
+
+export function resolveVideoContentUrl(
+  url: string | undefined,
+  assetBase = '',
+): string | undefined {
+  const path = url?.trim()
+  if (
+    !path
+    || path.startsWith('/')
+    || path.startsWith('\\')
+    || path.startsWith('//')
+    || path.includes('\\')
+    || /[\r\n]/.test(path)
+    || path.includes('?')
+    || path.includes('#')
+    || /^[a-z][a-z\d+.-]*:/i.test(path)
+  ) {
+    return undefined
+  }
+
+  const segments = assetBase.split('/').filter(Boolean)
+  for (const rawSegment of path.split('/')) {
+    let segment: string
+    try {
+      segment = decodeURIComponent(rawSegment)
+    } catch {
+      return undefined
+    }
+
+    if (segment === '.') continue
+    if (segment === '..') {
+      if (segments.length === 0) return undefined
+      segments.pop()
+      continue
+    }
+    if (!segment || segment.includes('/') || segment.includes('\\') || segment.includes('\0')) {
+      return undefined
+    }
+    segments.push(segment)
+  }
+
+  return segments.length > 0 ? contentUrl(segments.join('/')) : undefined
+}

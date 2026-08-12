@@ -16,6 +16,12 @@ flowchart LR
   B --> A
 ```
 
+## Video example
+
+```video
+../media/video-example.mp4
+```
+
 ## Service features
 
 - One request format

@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md) | 繁體中文（台灣） | [Русский](README.ru-RU.md)
 
-這是一個可嵌入 Sub2API 的唯讀 Markdown 文件頁面。介面使用 React、TypeScript、Ant Design 與 `@ant-design/x-markdown`，支援多份文件導覽、標題目錄、錨點、程式碼醒目提示、程式碼複製、圖片預覽、LaTeX、Mermaid、GFM，以及跟隨系統的淺色與深色主題。
+這是一個可嵌入 Sub2API 的唯讀 Markdown 文件頁面。介面使用 React、TypeScript、Ant Design 與 `@ant-design/x-markdown`，支援多份文件導覽、標題目錄、錨點、程式碼醒目提示、程式碼複製、圖片預覽、本機影片、LaTeX、Mermaid、GFM，以及跟隨系統的淺色與深色主題。
 
 服務不提供編輯器、登入、協作功能或管理員介面。
 
@@ -45,6 +45,18 @@ content/
 ```markdown
 ![架構圖](./images/architecture.png)
 ```
+
+### 本機影片
+
+使用標記為 `video` 的程式碼區塊，並在其中填入一條相對於目前 Markdown 檔案的影片路徑：
+
+````markdown
+```video
+./media/overview.mp4
+```
+````
+
+影片來源必須保留在 `content` 目錄內。外部連結、絕對路徑、data URL、帶有查詢參數的 URL，以及會離開 `content` 目錄的路徑都不會被顯示。請使用瀏覽器支援的影片格式，例如 MP4 或 WebM。
 
 ## 本機開發
 

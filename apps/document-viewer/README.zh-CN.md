@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文 | [繁體中文（台灣）](README.zh-TW.md) | [Русский](README.ru-RU.md)
 
-一个用于嵌入 Sub2API 的只读 Markdown 文档页面。界面使用 React、TypeScript、Ant Design 和 `@ant-design/x-markdown`，支持多文档导航、标题目录、锚点、代码高亮、代码复制、图片预览、LaTeX、Mermaid、GFM，以及跟随系统的浅色和深色主题。
+一个用于嵌入 Sub2API 的只读 Markdown 文档页面。界面使用 React、TypeScript、Ant Design 和 `@ant-design/x-markdown`，支持多文档导航、标题目录、锚点、代码高亮、代码复制、图片预览、本地视频、LaTeX、Mermaid、GFM，以及跟随系统的浅色和深色主题。
 
 服务不提供编辑器、登录、协作功能或管理员接口。
 
@@ -45,6 +45,18 @@ content/
 ```markdown
 ![架构图](./images/architecture.png)
 ```
+
+### 本地视频
+
+使用标记为 `video` 的代码块，并在其中填写一条相对于当前 Markdown 文件的视频路径：
+
+````markdown
+```video
+./media/overview.mp4
+```
+````
+
+视频源必须保留在 `content` 目录内。外部链接、绝对路径、data URL、带查询参数的 URL，以及会越出 `content` 目录的路径都不会渲染。请使用浏览器支持的视频格式，例如 MP4 或 WebM。
 
 ## 本地开发
 

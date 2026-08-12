@@ -7,7 +7,7 @@ import lightHighlightTheme from 'highlight.js/styles/github.css?inline'
 import darkHighlightTheme from 'highlight.js/styles/github-dark.css?inline'
 import '@ant-design/x-markdown/themes/light.css'
 import '@ant-design/x-markdown/themes/dark.css'
-import { resolveContentUrl } from '../lib/document'
+import { resolveContentUrl, resolveVideoContentUrl } from '../lib/document'
 import { createMarkdownConfig } from '../lib/markdownConfig'
 import { MermaidDiagram } from './MermaidDiagram'
 
@@ -47,6 +47,30 @@ export function MarkdownDocument({
       const language = props.lang?.toLowerCase()
       if (language === 'mermaid') {
         return <MermaidDiagram dark={dark} errorMessage={diagramError} source={source} />
+      }
+      if (language === 'video') {
+        const src = resolveVideoContentUrl(source, assetBase)
+        if (src) {
+          return (
+            <div
+              style={{
+                marginBlock: token.marginMD,
+                overflow: 'hidden',
+                border: `${token.lineWidth}px ${token.lineType} ${token.colorBorderSecondary}`,
+                borderRadius: token.borderRadiusLG,
+                background: '#000',
+              }}
+            >
+              <video
+                controls
+                playsInline
+                preload="metadata"
+                src={src}
+                style={{ display: 'block', width: '100%', maxHeight: '70vh' }}
+              />
+            </div>
+          )
+        }
       }
 
       return (

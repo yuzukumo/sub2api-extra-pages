@@ -16,6 +16,12 @@ flowchart LR
   B --> A
 ```
 
+## 影片範例
+
+```video
+../media/video-example.mp4
+```
+
 ## 服務特色
 
 - 統一的請求格式

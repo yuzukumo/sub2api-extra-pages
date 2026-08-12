@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md) | [繁體中文（台灣）](README.zh-TW.md) | [Русский](README.ru-RU.md)
 
-A read-only Markdown document viewer designed to be embedded in Sub2API. It uses React, TypeScript, Ant Design, and `@ant-design/x-markdown`, with support for multiple documents, heading navigation, anchors, syntax highlighting, copyable code, image previews, LaTeX, Mermaid, GFM, and system-aware light and dark themes.
+A read-only Markdown document viewer designed to be embedded in Sub2API. It uses React, TypeScript, Ant Design, and `@ant-design/x-markdown`, with support for multiple documents, heading navigation, anchors, syntax highlighting, copyable code, image previews, local video, LaTeX, Mermaid, GFM, and system-aware light and dark themes.
 
 The service has no editor, sign-in flow, collaboration features, or administration API.
 
@@ -45,6 +45,18 @@ Locale directories can contain subdirectories, images, and attachments. Use path
 ```markdown
 ![Architecture](./images/architecture.png)
 ```
+
+### Local video
+
+Use a fenced `video` block with one video path, relative to the current Markdown file:
+
+````markdown
+```video
+./media/overview.mp4
+```
+````
+
+Video sources must remain inside `content`. External URLs, absolute paths, data URLs, query strings, and paths that escape `content` are not rendered. Use a browser-supported format such as MP4 or WebM.
 
 ## Local development
 

@@ -7,6 +7,7 @@ import {
   isSafeDocumentPath,
   resolveContentUrl,
   resolveDocumentUrl,
+  resolveVideoContentUrl,
 } from './document'
 
 describe('document helpers', () => {
@@ -42,5 +43,22 @@ describe('document helpers', () => {
     expect(isSafeDocumentPath('guides/../start.md')).toBe(false)
     expect(isSafeDocumentPath('guides\\start.md')).toBe(false)
     expect(getDocumentAssetBase('en-US', 'guides/start.md')).toBe('en-US/guides/')
+  })
+
+  it('resolves video sources only when they stay inside content', () => {
+    expect(resolveVideoContentUrl('./media/overview.mp4', 'en-US/guides/'))
+      .toContain('en-US/guides/media/overview.mp4')
+    expect(resolveVideoContentUrl('../media/overview.webm', 'en-US/guides/'))
+      .toContain('en-US/media/overview.webm')
+    expect(resolveVideoContentUrl('../../media/overview.ogv', 'en-US/guides/'))
+      .toContain('media/overview.ogv')
+
+    expect(resolveVideoContentUrl('https://example.com/overview.mp4', 'en-US/')).toBeUndefined()
+    expect(resolveVideoContentUrl('//example.com/overview.mp4', 'en-US/')).toBeUndefined()
+    expect(resolveVideoContentUrl('/media/overview.mp4', 'en-US/')).toBeUndefined()
+    expect(resolveVideoContentUrl('data:video/mp4;base64,abc', 'en-US/')).toBeUndefined()
+    expect(resolveVideoContentUrl('../../../overview.mp4', 'en-US/guides/')).toBeUndefined()
+    expect(resolveVideoContentUrl('%2e%2e/%2e%2e/%2e%2e/overview.mp4', 'en-US/guides/')).toBeUndefined()
+    expect(resolveVideoContentUrl('./overview.mp4\nhttps://example.com/video.mp4', 'en-US/')).toBeUndefined()
   })
 })
