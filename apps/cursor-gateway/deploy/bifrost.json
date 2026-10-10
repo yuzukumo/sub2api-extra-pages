@@ -1,0 +1,25 @@
+{
+  "encryption_key": "env.BIFROST_ENCRYPTION_KEY",
+  "client": {
+    "enforce_auth_on_inference": true,
+    "disable_content_logging": true,
+    "enable_logging": false,
+    "allowed_origins": []
+  },
+  "config_store": {
+    "enabled": true,
+    "type": "sqlite",
+    "config": { "path": "/app/data/config.db" }
+  },
+  "logs_store": { "enabled": false },
+  "governance": {
+    "auth_config": {
+      "admin_username": "admin",
+      "admin_password": "env.BIFROST_PASSWORD",
+      "is_enabled": true
+    }
+  },
+  "plugins": [
+    { "name": "governance", "enabled": true, "config": { "is_vk_mandatory": true } }
+  ]
+}

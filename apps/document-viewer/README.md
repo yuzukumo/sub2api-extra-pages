@@ -1,6 +1,6 @@
 # Sub2API Document Viewer
 
-English | [简体中文](README.zh-CN.md) | [繁體中文（台灣）](README.zh-TW.md) | [Русский](README.ru-RU.md)
+English | [简体中文](README.zh-CN.md)
 
 A read-only Markdown document viewer designed to be embedded in Sub2API. It uses React, TypeScript, Ant Design, and `@ant-design/x-markdown`, with support for multiple documents, heading navigation, anchors, syntax highlighting, copyable code, image previews, local video, LaTeX, Mermaid, GFM, and system-aware light and dark themes.
 

@@ -4,7 +4,7 @@ The unified model service provides an OpenAI-compatible HTTP API for accessing m
 
 ## Before you begin
 
-Keep your access token secure. Do not include it in public repositories or client-side applications. Refer to Model Square for availability and pricing.
+Keep your access token secure. Do not include it in public repositories or client-side applications. Contact the administrator for model availability and pricing.
 
 ## Request flow
 

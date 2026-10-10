@@ -1,0 +1,85 @@
+services:
+  sub2apiextra-cursorgateway:
+    build: .
+    image: sub2apiextra-cursorgateway:local
+    depends_on: !override
+      sub2apiextra-cursorgateway-bifrost:
+        condition: service_healthy
+      sub2api:
+        condition: service_healthy
+
+  sub2apiextra-cursorgateway-bifrost:
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 15s
+      retries: 20
+
+  sub2api:
+    container_name: sub2apiextra-cursorgateway-sub2api
+    image: weishaw/sub2api:0.2.15@sha256:da0fd94daebf890419e21e956821fd6c2008fc666f9617f2eb917f4492245da3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      AUTO_SETUP: "true"
+      SERVER_MODE: debug
+      DATABASE_HOST: postgres
+      DATABASE_USER: sub2api
+      DATABASE_PASSWORD: sub2api-local-password
+      REDIS_HOST: redis
+      REDIS_PASSWORD: sub2api-local-password
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: local-admin-password
+      TOTP_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    volumes:
+      - sub2api-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 20
+
+  postgres:
+    container_name: sub2apiextra-cursorgateway-postgres
+    image: postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sub2api
+      POSTGRES_DB: sub2api
+      POSTGRES_PASSWORD: sub2api-local-password
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sub2api -d sub2api"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    container_name: sub2apiextra-cursorgateway-redis
+    image: redis:8.10.2-alpine3.23@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "sub2api-local-password"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a sub2api-local-password ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  sub2api-data:
+    name: sub2api_data
+  postgres-data:
+    name: sub2api_postgres_data
+  redis-data:
+    name: sub2api_redis_data

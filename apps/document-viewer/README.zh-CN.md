@@ -1,6 +1,6 @@
 # Sub2API 文档阅读器
 
-[English](README.md) | 简体中文 | [繁體中文（台灣）](README.zh-TW.md) | [Русский](README.ru-RU.md)
+[English](README.md) | 简体中文
 
 一个用于嵌入 Sub2API 的只读 Markdown 文档页面。界面使用 React、TypeScript、Ant Design 和 `@ant-design/x-markdown`，支持多文档导航、标题目录、锚点、代码高亮、代码复制、图片预览、本地视频、LaTeX、Mermaid、GFM，以及跟随系统的浅色和深色主题。
 

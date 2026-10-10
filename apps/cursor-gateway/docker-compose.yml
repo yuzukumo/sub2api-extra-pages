@@ -1,0 +1,30 @@
+services:
+  sub2apiextra-cursorgateway:
+    container_name: sub2apiextra-cursorgateway
+    image: ghcr.io/yuzukumo/sub2api-extra-pages-cursor-gateway:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6001:3000"
+    environment:
+      SUB2API_URL: http://sub2api:8080
+      LIMIT_CONTEXT_TO_FIRST_TIER: "true"
+    volumes:
+      - sub2apiextra-cursorgateway:/app/data
+    depends_on:
+      - sub2apiextra-cursorgateway-bifrost
+
+  sub2apiextra-cursorgateway-bifrost:
+    container_name: sub2apiextra-cursorgateway-bifrost
+    image: maximhq/bifrost:latest
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec", "test -f /app/bootstrap.sh && test -f /app/data/config.json || { echo 'Mount deploy/bifrost-entrypoint.sh and deploy/bifrost.json as regular files.' >&2; exit 1; }; exec /bin/sh /app/bootstrap.sh"]
+    volumes:
+      - sub2apiextra-cursorgateway-bifrost:/app/data
+      - ./deploy/bifrost.json:/app/data/config.json:ro
+      - ./deploy/bifrost-entrypoint.sh:/app/bootstrap.sh:ro
+
+volumes:
+  sub2apiextra-cursorgateway:
+    name: sub2apiextra_cursorgateway
+  sub2apiextra-cursorgateway-bifrost:
+    name: sub2apiextra-cursorgateway-bifrost

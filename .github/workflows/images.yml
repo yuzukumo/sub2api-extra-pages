@@ -4,7 +4,14 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -17,23 +24,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - app: model-square
-            image: sub2api-extra-pages-model-square
+          - app: document-viewer
+            image: sub2api-extra-pages-document-viewer
             runner: ubuntu-24.04
             platform: linux/amd64
             arch: amd64
-          - app: model-square
-            image: sub2api-extra-pages-model-square
+          - app: document-viewer
+            image: sub2api-extra-pages-document-viewer
             runner: ubuntu-24.04-arm
             platform: linux/arm64
             arch: arm64
-          - app: document-viewer
-            image: sub2api-extra-pages-document-viewer
+          - app: cursor-gateway
+            image: sub2api-extra-pages-cursor-gateway
             runner: ubuntu-24.04
             platform: linux/amd64
             arch: amd64
-          - app: document-viewer
-            image: sub2api-extra-pages-document-viewer
+          - app: cursor-gateway
+            image: sub2api-extra-pages-cursor-gateway
             runner: ubuntu-24.04-arm
             platform: linux/arm64
             arch: arm64
@@ -43,6 +50,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Login
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -52,23 +60,42 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Test gateway
+        if: matrix.app == 'cursor-gateway'
+        run: >-
+          docker run --rm
+          -v "$PWD/apps/cursor-gateway:/app" -w /app
+          golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
+          sh -c 'go test ./... && go vet ./...'
+
+      - name: Test web
+        env:
+          WEB_DIR: apps/${{ matrix.app }}${{ matrix.app == 'cursor-gateway' && '/frontend' || '' }}
+        run: >-
+          docker run --rm
+          -v "$PWD/$WEB_DIR:/app" -w /app
+          node:24.21.0-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+          sh -c 'npm ci --no-audit --no-fund && npm test'
+
       - name: Build
         id: build
         uses: docker/build-push-action@v7
         with:
           context: apps/${{ matrix.app }}
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=ghcr.io/yuzukumo/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          outputs: ${{ github.event_name == 'pull_request' && 'type=cacheonly' || format('type=image,name=ghcr.io/yuzukumo/{0},push-by-digest=true,name-canonical=true,push=true', matrix.image) }}
           cache-from: type=gha,scope=${{ matrix.app }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}-${{ matrix.arch }}
 
       - name: Save digest
+        if: github.event_name != 'pull_request'
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: digests-${{ matrix.app }}-${{ matrix.arch }}
@@ -78,14 +105,15 @@ jobs:
 
   publish:
     name: Publish
+    if: github.event_name != 'pull_request'
     needs: build
     strategy:
       matrix:
         include:
-          - app: model-square
-            image: sub2api-extra-pages-model-square
           - app: document-viewer
             image: sub2api-extra-pages-document-viewer
+          - app: cursor-gateway
+            image: sub2api-extra-pages-cursor-gateway
     runs-on: ubuntu-24.04
     steps:
       - name: Download digests
