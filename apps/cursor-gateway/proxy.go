@@ -137,11 +137,14 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		effort = chatEffort
 		delete(body, "reasoning_effort")
 	}
+	if effort != "" && !slices.Contains(m.Efforts, effort) {
+		fail(w, problem(400, "invalid_effort", "This reasoning level is not supported by the model"))
+		return
+	}
+	if effort == "" && m.Provider == "sub-openai" {
+		effort = "xhigh"
+	}
 	if effort != "" {
-		if !slices.Contains(m.Efforts, effort) {
-			fail(w, problem(400, "invalid_effort", "This reasoning level is not supported by the model"))
-			return
-		}
 		reasoning["effort"], _ = json.Marshal(effort)
 	}
 	if len(reasoning) > 0 {

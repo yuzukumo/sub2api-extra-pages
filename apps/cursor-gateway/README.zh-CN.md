@@ -38,7 +38,9 @@ Bifrost 不发布端口，内部管理员密码已内置，首次启动会自动
 
 支持 OpenAI、Anthropic 和 Grok 分组。一个原 key 对应一种格式，同一用户勾选的 key 之间模型名称不能重复。遇到重复模型时，在修改 Bifrost 凭据之前就会拒绝这次选择
 
-思考等级仅从 [models.dev provider 数据](https://models.dev/api.json?type=all) 读取，使用对应 provider 和模型的 `reasoning_options` 中 `type: "effort"` 的 `values`，作为 `thinking.levels` 和 `capabilities.reasoning_effort` 写入模型列表。同时返回 `api_types: ["chat_completions"]` 和能力字段，供 Cursor 的本地供应商发现逻辑读取。没有 effort 枚举时使用默认的 `low`、`medium`、`high`。只读模型页显示等级来源为 models.dev 或默认三级。数据缓存在现有网关卷中，每 3 小时同步一次，无用户请求时也会同步。失败自动重试 2 次，仍失败就保留旧缓存并等待下一轮同步。网关同时接受 `reasoning_effort` 和 `reasoning.effort`，按这些等级检查后转发，不主动添加默认 effort。调用 Bifrost 的 `/cursor/v1/chat/completions` 集成，将 Cursor 请求转换为 Responses，再返回 Chat Completions 格式，支持流式工具调用。Anthropic 经 Bifrost 转为原生 Messages 请求
+思考等级仅从 [models.dev provider 数据](https://models.dev/api.json?type=all) 读取，使用对应 provider 和模型的 `reasoning_options` 中 `type: "effort"` 的 `values`，作为 `thinking.levels` 和 `capabilities.reasoning_effort` 写入模型列表。同时返回 `api_types: ["chat_completions"]` 和能力字段，供 Cursor 的本地供应商发现逻辑读取。没有 effort 枚举时使用默认的 `low`、`medium`、`high`。只读模型页显示等级来源为 models.dev 或默认三级。数据缓存在现有网关卷中，每 3 小时同步一次，无用户请求时也会同步。失败自动重试 2 次，仍失败就保留旧缓存并等待下一轮同步。网关同时接受 `reasoning_effort` 和 `reasoning.effort`，按这些等级检查显式 effort 后转发。调用 Bifrost 的 `/cursor/v1/chat/completions` 集成，将 Cursor 请求转换为 Responses，再返回 Chat Completions 格式，支持流式工具调用。Anthropic 经 Bifrost 转为原生 Messages 请求
+
+OpenAI 来源模型没有收到 Cursor 的 effort 时，网关固定向上游传递 `xhigh`。用户显式选择的 effort 会保留并校验，其他来源模型没有 effort 时保持原样
 
 Cursor Private Inference 3.24.12 读取网关的能力字段后，仍按客户端内置模型规则生成思考等级选项。它的选择器不读取 `thinking.levels`，也不使用返回的 effort 列表生成选项。这一版为 `gpt-5.6-sol` 和 `grok-4.7` 提供四档，为 Haiku 4.5 不提供 effort 控件。仅修改网关模型元数据无法覆盖这部分客户端行为
 

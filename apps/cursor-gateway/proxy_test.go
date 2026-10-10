@@ -242,36 +242,63 @@ func TestInferenceKeepsRotatedTokensWhenIdentityOrKeySyncFails(t *testing.T) {
 	}
 }
 
-func TestProxyLeavesUnspecifiedEffortToUpstreamAndAcceptsSourcedLevels(t *testing.T) {
-	var forwarded []string
+func TestProxyDefaultsOnlyUnspecifiedOpenAIEffortAndPreservesSettings(t *testing.T) {
+	type requestBody struct {
+		Model     string `json:"model"`
+		Reasoning struct {
+			Effort  string `json:"effort"`
+			Summary string `json:"summary"`
+		} `json:"reasoning"`
+		ChatEffort *string `json:"reasoning_effort"`
+	}
+	var forwarded []requestBody
 	s := testServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }, func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Reasoning struct {
-				Effort string `json:"effort"`
-			} `json:"reasoning"`
-		}
+		var body requestBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		forwarded = append(forwarded, body.Reasoning.Effort)
+		forwarded = append(forwarded, body)
 		jsonResponse(w, map[string]string{"id": "completion"})
 	})
 	setModelsDev(t, s, testModelData)
 	a := activeAccount()
-	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model", "missing-model"}}}
+	a.Bindings = []Binding{
+		{Provider: "sub-openai", Models: []string{"test-model", "missing-model"}},
+		{Provider: "sub-claude", Models: []string{"budget-model"}},
+		{Provider: "sub-grok", Models: []string{"grok-model"}},
+	}
 	if err := s.store.save(&a); err != nil {
 		t.Fatal(err)
 	}
-	for _, body := range []string{`{"model":"test-model"}`, `{"model":"test-model","reasoning":{"effort":"future-effort"}}`, `{"model":"missing-model","reasoning_effort":"medium"}`} {
-		r := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
-		r.Header.Set("Authorization", "Bearer gateway-key")
-		w := httptest.NewRecorder()
-		s.routes().ServeHTTP(w, r)
-		if w.Code != 200 {
-			t.Fatalf("reasoning request rejected %d %s", w.Code, w.Body.String())
-		}
+	cases := []struct {
+		name, input, model, effort, summary string
+	}{
+		{"omitted", `{"model":"test-model"}`, "sub-openai/test-model", "xhigh", ""},
+		{"empty chat effort", `{"model":"test-model","reasoning_effort":""}`, "sub-openai/test-model", "xhigh", ""},
+		{"null chat effort", `{"model":"test-model","reasoning_effort":null}`, "sub-openai/test-model", "xhigh", ""},
+		{"empty response effort", `{"model":"test-model","reasoning":{"effort":""}}`, "sub-openai/test-model", "xhigh", ""},
+		{"null response effort", `{"model":"test-model","reasoning":{"effort":null}}`, "sub-openai/test-model", "xhigh", ""},
+		{"preserve summary", `{"model":"test-model","reasoning":{"summary":"auto"}}`, "sub-openai/test-model", "xhigh", "auto"},
+		{"missing metadata", `{"model":"missing-model"}`, "sub-openai/missing-model", "xhigh", ""},
+		{"explicit response effort", `{"model":"test-model","reasoning":{"effort":"future-effort"}}`, "sub-openai/test-model", "future-effort", ""},
+		{"explicit chat effort", `{"model":"missing-model","reasoning_effort":"medium"}`, "sub-openai/missing-model", "medium", ""},
+		{"Claude default", `{"model":"budget-model"}`, "sub-claude/budget-model", "", ""},
+		{"Grok default", `{"model":"grok-model"}`, "sub-grok/grok-model", "", ""},
+		{"Grok explicit effort", `{"model":"grok-model","reasoning_effort":"xhigh"}`, "sub-grok/grok-model", "xhigh", ""},
 	}
-	if !slices.Equal(forwarded, []string{"", "future-effort", "medium"}) {
-		t.Fatal("gateway injected a default effort or rejected a sourced level")
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(tc.input))
+			r.Header.Set("Authorization", "Bearer gateway-key")
+			w := httptest.NewRecorder()
+			s.routes().ServeHTTP(w, r)
+			if w.Code != 200 || len(forwarded) != i+1 {
+				t.Fatalf("reasoning request failed %d %s", w.Code, w.Body.String())
+			}
+			got := forwarded[i]
+			if got.Model != tc.model || got.Reasoning.Effort != tc.effort || got.Reasoning.Summary != tc.summary || got.ChatEffort != nil {
+				t.Fatalf("wrong reasoning or model forwarded: %#v", got)
+			}
+		})
 	}
 }
