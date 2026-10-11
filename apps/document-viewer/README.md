@@ -2,21 +2,30 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A read-only Markdown document viewer designed to be embedded in Sub2API. It uses React, TypeScript, Ant Design, and `@ant-design/x-markdown`, with support for multiple documents, heading navigation, anchors, syntax highlighting, copyable code, image previews, local video, LaTeX, Mermaid, GFM, and system-aware light and dark themes.
+A read-only Markdown viewer for embedding in Sub2API. Supports multiple documents, heading navigation, code highlighting, images, local video, LaTeX, Mermaid, and light or dark themes.
 
-The service has no editor, sign-in flow, collaboration features, or administration API.
+## Deploy
 
-## Document configuration
+Copy [docker-compose.yml](docker-compose.yml) and the [content](content/) directory, then start the published image:
 
-The manifest has a fixed path: [`content/documents.json`](content/documents.json). The service requires this file and does not allow its path to be changed through an environment variable. The order of the `documents` array determines the order in the left navigation. The keys in `title` define the document languages shown in the language selector, so configure only the locales you provide.
+```sh
+docker compose pull
+docker compose up -d
+```
+
+Open `http://localhost:6002`. The port binds to localhost. Use a reverse proxy for public access or change the port mapping in Compose.
+
+Edit files in `content` and refresh the browser to see changes. The directory is mounted read-only into the container.
+
+## Add documents
+
+Edit [content/documents.json](content/documents.json):
 
 ```json
 {
   "title": {
     "en-US": "Documentation",
-    "zh-CN": "服务文档",
-    "zh-TW": "服務說明文件",
-    "ru-RU": "Документация"
+    "zh-CN": "服务文档"
   },
   "documents": [
     { "file": "introduction.md" },
@@ -25,30 +34,34 @@ The manifest has a fixed path: [`content/documents.json`](content/documents.json
 }
 ```
 
-Each entry contains only `file`. It is the Markdown path relative to each locale directory, the document's unique identifier, and the value used in the `?doc=` query parameter. The navigation label is read from the first `#` heading in the corresponding Markdown file, so every translation must contain a level-one heading.
+| Field | Meaning |
+| --- | --- |
+| `title` | Page title for each language you provide. Supports `en-US`, `zh-CN`, `zh-TW`, and `ru-RU` |
+| `documents[].file` | Markdown path relative to each language directory. Array order sets navigation order |
+| First `#` heading | Document name shown in the navigation |
 
-Changes to files or ordering take effect after a browser refresh. There is no administration page or write API.
-
-Every document must have the same relative path in every locale directory configured in `title`:
+Every configured language needs the same document paths:
 
 ```text
 content/
 ├── documents.json
 ├── en-US/introduction.md
-├── ru-RU/introduction.md
+├── en-US/guides/api-reference.md
 ├── zh-CN/introduction.md
-└── zh-TW/introduction.md
+└── zh-CN/guides/api-reference.md
 ```
 
-Locale directories can contain subdirectories, images, and attachments. Use paths relative to the current Markdown file:
+The language selector shows only configured languages. Language and theme choices are saved in the browser.
+
+## Images and video
+
+Use paths relative to the current Markdown file:
 
 ```markdown
 ![Architecture](./images/architecture.png)
 ```
 
-### Local video
-
-Use a fenced `video` block with one video path, relative to the current Markdown file:
+For local MP4 or WebM video:
 
 ````markdown
 ```video
@@ -56,40 +69,24 @@ Use a fenced `video` block with one video path, relative to the current Markdown
 ```
 ````
 
-Video sources must remain inside `content`. External URLs, absolute paths, data URLs, query strings, and paths that escape `content` are not rendered. Use a browser-supported format such as MP4 or WebM.
+Video paths must stay inside `content`. External URLs and paths with query strings are unsupported.
 
-## Local development
+<details>
+<summary>Build from source and develop locally</summary>
 
-```bash
+Docker build:
+
+```sh
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+Development server at `http://localhost:4174/`:
+
+```sh
 npm install
 npm run dev
 ```
 
-The web interface is available at `http://localhost:4174/`. Vite serves the files in `content` directly during development; no local API is started.
+Run tests and the production build with `npm run check`.
 
-Run all checks with:
-
-```bash
-npm run check
-```
-
-## Docker deployment
-
-To use the image published by GitHub Actions, run:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-To build from source instead, run:
-
-```bash
-docker compose -f docker-compose.local.yml up -d --build
-```
-
-Nginx serves the static interface and Markdown files. The provided Compose file maps `127.0.0.1:6002` to port `3000` in the container and mounts `./content` at `/usr/share/nginx/html/content` in read-only mode. Change the host address or port mapping in `docker-compose.yml` when needed.
-
-This is a bind mount rather than a named Docker volume, so it does not appear in `docker volume ls`. Its details are available under `Mounts` in `docker inspect sub2apiextra-documentviewer`.
-
-The page follows the system theme by default. Manual theme and language choices are stored in the browser. The interface supports English, Russian, Simplified Chinese, and Traditional Chinese (Taiwan); the language selector only shows locales configured in `title`. Browser preferences are used when that locale is configured; otherwise, English is used when available, or the first configured locale.
+</details>

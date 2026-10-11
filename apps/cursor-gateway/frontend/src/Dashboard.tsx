@@ -166,8 +166,8 @@ export function Dashboard({ account }: { account: Account }) {
             <Title order={4}>{t("连接 Cursor", "Connect Cursor")}</Title>
             <Text size="sm" c="dimmed" mt={4}>
               {t(
-                "填入以下地址和 key，即可使用已选 key 的全部模型",
-                "Use this URL and key to access all models from your selected keys",
+                "在 Cursor 的 Models > Gateway 中填入以下地址和 key，即可使用全部已选模型",
+                "Enter this URL and key in Cursor's Models > Gateway settings to access all selected models",
               )}
             </Text>
           </div>
@@ -179,7 +179,7 @@ export function Dashboard({ account }: { account: Account }) {
           <Group align="flex-end" wrap="nowrap">
             <TextInput
               style={{ flex: 1 }}
-              label={t("覆盖 OpenAI Base URL", "Override OpenAI Base URL")}
+              label="Base URL"
               value={account.base_url}
               readOnly
               styles={{
@@ -192,7 +192,7 @@ export function Dashboard({ account }: { account: Account }) {
             <Group align="flex-end" wrap="nowrap">
               <PasswordInput
                 style={{ flex: 1 }}
-                label={t("OpenAI API Key", "OpenAI API Key")}
+                label="API Key"
                 value={account.key}
                 readOnly
                 styles={{
@@ -216,14 +216,14 @@ export function Dashboard({ account }: { account: Account }) {
           <Stack gap="sm">
             <Text size="sm">
               {t(
-                "1. 打开 Cursor Settings 中的 Models 页面",
-                "1. Open Models in Cursor Settings",
+                "1. 打开 Cursor Settings 中的 Models > Gateway",
+                "1. Open Models > Gateway in Cursor Settings",
               )}
             </Text>
             <Text size="sm">
               {t(
-                "2. 填入 OpenAI API Key，并启用自定义 Base URL",
-                "2. Enter the OpenAI API Key and enable the custom Base URL",
+                "2. 填入上方的 Base URL 和 API Key",
+                "2. Enter the Base URL and API Key shown above",
               )}
             </Text>
             <Text size="sm">
@@ -314,8 +314,8 @@ export function Dashboard({ account }: { account: Account }) {
         <Stack>
           <Text size="sm">
             {t(
-              "旧 key 将立即失效。生成后需要更新 Cursor 中的 API Key",
-              "Your old key will stop working immediately. Update the API Key in Cursor after regeneration",
+              "旧 key 将立即失效。生成后需要更新 Cursor 的 Models > Gateway 中的 API Key",
+              "Your old key will stop working immediately. Update the API Key in Cursor's Models > Gateway settings after regeneration",
             )}
           </Text>
           <Group justify="flex-end">
