@@ -19,7 +19,8 @@ const testModelData = `{
     "unowned-model":{"reasoning_options":[{"type":"effort","values":["none"]}]}
   }},
   "anthropic":{"models":{"budget-model":{"reasoning_options":[{"type":"budget_tokens","min":1024}],"limit":{"context":2400}}}},
-  "xai":{"models":{"grok-model":{"reasoning_options":[{"type":"effort","values":["medium","xhigh"]}],"limit":{"context":4800}}}}
+  "xai":{"models":{"grok-model":{"reasoning_options":[{"type":"effort","values":["medium","xhigh"]}],"limit":{"context":4800}}}},
+  "google":{"models":{"gemini-model":{"reasoning_options":[{"type":"effort","values":["minimal","high"]}],"modalities":{"input":["text","image"]},"limit":{"context":9600,"output":600}}}}
 }`
 
 func setModelsDev(t *testing.T, s *Server, data string) {
@@ -48,9 +49,12 @@ func TestCatalogUsesProviderEffortEnumsAndDefaultLevelsWithoutExpandingPermissio
 		{Provider: "sub-grok", Models: []string{"grok-model"}},
 		{Provider: "sub-openai", Models: []string{"openai/test-model", "missing-model"}},
 		{Provider: "sub-claude", Models: []string{"budget-model"}},
+		{Provider: "sub-gemini", Models: []string{"gemini-model", "google/gemini-model"}},
 	}}
 	want := []Model{
 		{ID: "budget-model", Provider: "sub-claude", Efforts: []string{"low", "medium", "high"}, EffortSource: "default", ContextWindow: 2400},
+		{ID: "gemini-model", Provider: "sub-gemini", Efforts: []string{"minimal", "high"}, EffortSource: "models.dev", ContextWindow: 9600, MaxOutputTokens: 600, SupportsVision: true},
+		{ID: "google/gemini-model", Provider: "sub-gemini", Efforts: []string{"minimal", "high"}, EffortSource: "models.dev", ContextWindow: 9600, MaxOutputTokens: 600, SupportsVision: true},
 		{ID: "grok-model", Provider: "sub-grok", Efforts: []string{"medium", "xhigh"}, EffortSource: "models.dev", ContextWindow: 4800},
 		{ID: "missing-model", Provider: "sub-openai", Efforts: []string{"low", "medium", "high"}, EffortSource: "default"},
 		{ID: "openai/test-model", Provider: "sub-openai", Efforts: []string{"low", "high", "future-effort"}, EffortSource: "models.dev", ContextWindow: 1200, MaxOutputTokens: 300, SupportsVision: true},
@@ -59,7 +63,7 @@ func TestCatalogUsesProviderEffortEnumsAndDefaultLevelsWithoutExpandingPermissio
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("model metadata differs from its sources\ngot %#v\nwant %#v", got, want)
 	}
-	got[3].Efforts[0] = "mutated"
+	got[len(got)-1].Efforts[0] = "mutated"
 	if !reflect.DeepEqual(c.models(context.Background(), a, false), want) || calls.Load() != 1 {
 		t.Fatal("catalog was mutated by a caller or downloaded for every request")
 	}

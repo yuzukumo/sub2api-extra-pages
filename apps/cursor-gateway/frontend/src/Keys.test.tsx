@@ -46,7 +46,7 @@ test("key list refresh preserves draft selection and saved changes reset it", ()
       id,
       name: `Key ${id}`,
       group: "OpenAI",
-      provider: "sub-openai",
+      provider: id === 2 ? "sub-gemini" : "sub-openai",
       status: "active",
       usable: true,
       rate_multiplier: 1,
@@ -63,6 +63,7 @@ test("key list refresh preserves draft selection and saved changes reset it", ()
     </QueryClientProvider>
   );
   const { rerender } = render(view(account));
+  expect(screen.getByText("Gemini")).toBeTruthy();
   fireEvent.click(screen.getByRole("checkbox", { name: "选择 Key 2" }));
   rerender(view({
     ...account,

@@ -17,10 +17,11 @@ func sourceFixture(id, owner int64, platform, key string) SourceKey {
 }
 
 func TestSyncLimitsProviderCredentialsToSelectedOwnedKeysAndDeactivatesEmptySelection(t *testing.T) {
-	keys := []SourceKey{sourceFixture(12, 7, "openai", "source-openai"), sourceFixture(13, 7, "anthropic", "source-claude"), sourceFixture(14, 7, "grok", "source-grok"), sourceFixture(15, 8, "openai", "foreign-source")}
+	keys := []SourceKey{sourceFixture(12, 7, "openai", "source-openai"), sourceFixture(13, 7, "anthropic", "source-claude"), sourceFixture(14, 7, "grok", "source-grok"), sourceFixture(15, 8, "openai", "foreign-source"), sourceFixture(16, 7, "gemini", "source-gemini")}
 	credentials := make(chan bifrostKey, 8)
 	virtuals := make(chan virtualRequest, 8)
 	deleted := make(chan string, 8)
+	configured := make(chan string, 8)
 	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/keys":
@@ -42,10 +43,15 @@ func TestSyncLimitsProviderCredentialsToSelectedOwnedKeysAndDeactivatesEmptySele
 			jsonResponse(w, map[string]bool{"ok": true})
 		case r.URL.Path == "/api/providers" && r.Method == "POST":
 			var body struct {
-				Network struct {
+				Provider string `json:"provider"`
+				Network  struct {
 					BaseURL string `json:"base_url"`
 					Private bool   `json:"allow_private_network"`
 				} `json:"network_config"`
+				Custom struct {
+					Base    string          `json:"base_provider_type"`
+					Allowed map[string]bool `json:"allowed_requests"`
+				} `json:"custom_provider_config"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
@@ -53,6 +59,10 @@ func TestSyncLimitsProviderCredentialsToSelectedOwnedKeysAndDeactivatesEmptySele
 			if !body.Network.Private || body.Network.BaseURL == "" {
 				t.Error("provider cannot reach Sub2API on the Docker network")
 			}
+			if body.Provider == "sub-gemini" && (body.Custom.Base != "gemini" || !strings.HasSuffix(body.Network.BaseURL, "/v1beta") || !body.Custom.Allowed["responses"] || !body.Custom.Allowed["responses_stream"]) {
+				t.Error("Gemini provider cannot convert Responses to Sub2API's native API")
+			}
+			configured <- body.Provider
 			jsonResponse(w, map[string]bool{"ok": true})
 		case strings.HasSuffix(r.URL.Path, "/keys") && r.Method == "GET":
 			jsonResponse(w, map[string]any{"keys": []bifrostKey{}})
@@ -79,21 +89,21 @@ func TestSyncLimitsProviderCredentialsToSelectedOwnedKeysAndDeactivatesEmptySele
 	a := activeAccount()
 	a.VirtualKey = ""
 	a.GatewayKey = ""
-	a.SelectedSourceIDs = []int64{12, 14, 15}
+	a.SelectedSourceIDs = []int64{12, 14, 15, 16}
 	updated, err := s.clients.sync(context.Background(), a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(updated.SourceKeys) != 3 || len(updated.Bindings) != 2 || updated.VirtualKey != "aggregate-7" {
+	if len(updated.SourceKeys) != 4 || len(updated.Bindings) != 3 || updated.VirtualKey != "aggregate-7" || len(configured) != 3 {
 		t.Fatal("selection did not preserve owned key visibility and credential isolation")
 	}
 	assertGatewayKey(t, updated.GatewayKey)
-	first, second := <-credentials, <-credentials
-	if first.Value != keys[0].Key || second.Value != keys[2].Key || !slices.Equal(first.Models, []string{"source-openai-model"}) {
+	first, second, third := <-credentials, <-credentials, <-credentials
+	if first.Value != keys[0].Key || second.Value != keys[2].Key || third.Value != keys[4].Key || !slices.Equal(first.Models, []string{"source-openai-model"}) || !slices.Equal(third.Models, []string{"source-gemini-model"}) {
 		t.Fatal("Bifrost received an unselected credential or incorrect model restriction")
 	}
 	vk := <-virtuals
-	if !vk.Active || vk.AllProviders || !vk.DisableContentLogging || len(vk.Providers) != 2 {
+	if !vk.Active || vk.AllProviders || !vk.DisableContentLogging || len(vk.Providers) != 3 {
 		t.Fatal("aggregate key is not limited to the selected providers")
 	}
 	for _, provider := range vk.Providers {
@@ -108,8 +118,71 @@ func TestSyncLimitsProviderCredentialsToSelectedOwnedKeysAndDeactivatesEmptySele
 		t.Fatal(err)
 	}
 	inactive := <-virtuals
-	if inactive.Active || inactive.AllProviders || len(inactive.Providers) != 0 || len(deselected.Bindings) != 0 || deselected.VirtualKey != updated.VirtualKey || deselected.GatewayKey != updated.GatewayKey || len(deleted) != 2 || len(credentials) != 0 {
+	if inactive.Active || inactive.AllProviders || len(inactive.Providers) != 0 || len(deselected.Bindings) != 0 || deselected.VirtualKey != updated.VirtualKey || deselected.GatewayKey != updated.GatewayKey || len(deleted) != 3 || len(credentials) != 0 {
 		t.Fatal("clearing selection left usable credentials or unexpectedly rotated the aggregate key")
+	}
+}
+
+func TestEnsureProviderCreatesReusesAndUpdatesNativeRouting(t *testing.T) {
+	for _, provider := range []struct {
+		name, base, suffix string
+	}{
+		{"sub-openai", "openai", ""},
+		{"sub-claude", "anthropic", ""},
+		{"sub-grok", "openai", ""},
+		{"sub-gemini", "gemini", "/v1beta"},
+	} {
+		for _, currentURL := range []string{"", "http://previous-sub2api" + provider.suffix, "http://current-sub2api" + provider.suffix} {
+			t.Run(provider.name+"/"+currentURL, func(t *testing.T) {
+				updates := 0
+				s := testServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }, func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path != "/api/providers/"+provider.name && !(currentURL == "" && r.URL.Path == "/api/providers" && r.Method == "POST") {
+						t.Errorf("unexpected provider request %s", r.URL.Path)
+					}
+					if r.Method == "GET" {
+						if currentURL == "" {
+							w.WriteHeader(404)
+							return
+						}
+						jsonResponse(w, map[string]any{"network_config": map[string]any{"base_url": currentURL, "allow_private_network": true}, "custom_provider_config": map[string]any{"base_provider_type": provider.base, "allowed_requests": map[string]bool{"responses": true, "responses_stream": true}}})
+						return
+					}
+					updates++
+					var body struct {
+						Network struct {
+							BaseURL string `json:"base_url"`
+						} `json:"network_config"`
+						Custom struct {
+							Base    string          `json:"base_provider_type"`
+							Allowed map[string]bool `json:"allowed_requests"`
+						} `json:"custom_provider_config"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+						return
+					}
+					method := "PUT"
+					if currentURL == "" {
+						method = "POST"
+					}
+					if r.Method != method || body.Network.BaseURL != "http://current-sub2api"+provider.suffix || body.Custom.Base != provider.base || !body.Custom.Allowed["responses"] || !body.Custom.Allowed["responses_stream"] {
+						t.Error("provider configuration changed its native routing")
+					}
+					jsonResponse(w, map[string]bool{"ok": true})
+				})
+				s.clients.config.SubURL = "http://current-sub2api"
+				if err := s.clients.ensureProvider(context.Background(), provider.name); err != nil {
+					t.Fatal(err)
+				}
+				want := 0
+				if currentURL != "http://current-sub2api"+provider.suffix {
+					want = 1
+				}
+				if updates != want {
+					t.Fatalf("provider updates = %d, want %d", updates, want)
+				}
+			})
+		}
 	}
 }
 

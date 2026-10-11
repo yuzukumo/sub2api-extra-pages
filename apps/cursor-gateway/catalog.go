@@ -169,6 +169,8 @@ func (c *ModelCatalog) models(ctx context.Context, a Account, limitToFirstTier b
 			provider = "anthropic"
 		case "sub-grok":
 			provider = "xai"
+		case "sub-gemini":
+			provider = "google"
 		}
 		for _, id := range b.Models {
 			spec := data[provider].Models[id]

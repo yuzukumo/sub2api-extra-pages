@@ -36,7 +36,7 @@ func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.
 			t.Error(err)
 			return
 		}
-		if !bytes.Equal(body["input"], input) || !bytes.Equal(body["tools"], tools) || string(body["include"]) != `["web_search_call.action.sources"]` || string(body["prompt_cache_key"]) != `"cache-id"` {
+		if !bytes.Equal(body["input"], input) || !bytes.Equal(body["tools"], tools) || string(body["include"]) != `["web_search_call.action.sources"]` || string(body["prompt_cache_key"]) != `"cache-id"` || string(body["cached_content"]) != `"cachedContents/test-cache"` {
 			t.Error("Responses input, search settings, citations or cache settings were altered")
 		}
 		if body["fallbacks"] != nil || body["provider"] != nil || body["api_key"] != nil {
@@ -55,6 +55,7 @@ func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.
 		{Provider: "sub-openai", Models: []string{"test-model"}},
 		{Provider: "sub-claude", Models: []string{"budget-model"}},
 		{Provider: "sub-grok", Models: []string{"grok-model"}},
+		{Provider: "sub-gemini", Models: []string{"gemini-model"}},
 	}
 	setModelsDev(t, s, testModelData)
 	if err := s.store.save(&a); err != nil {
@@ -94,7 +95,7 @@ func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.
 			for _, streaming := range []bool{false, true} {
 				body, err := json.Marshal(map[string]any{
 					"model": binding.Models[0], "input": input, "tools": tools, "stream": streaming,
-					"include": []string{"web_search_call.action.sources"}, "prompt_cache_key": "cache-id",
+					"include": []string{"web_search_call.action.sources"}, "prompt_cache_key": "cache-id", "cached_content": "cachedContents/test-cache",
 					"fallbacks": []string{"untrusted"}, "provider": "untrusted", "api_key": "untrusted",
 				})
 				if err != nil {
@@ -316,7 +317,7 @@ func TestCursorResponsesDiscoveryPreservesToolHistoryAndStreamState(t *testing.T
 		if !bytes.Equal(body.Input, input) || body.Store {
 			t.Error("assistant phase, reasoning state or tool history changed")
 		}
-		if body.Model != "sub-openai/test-model" && body.Model != "sub-grok/grok-model" {
+		if body.Model != "sub-openai/test-model" && body.Model != "sub-grok/grok-model" && body.Model != "sub-gemini/gemini-model" {
 			t.Error("model used the wrong source provider")
 		}
 		if body.Model == "sub-openai/test-model" && body.Reasoning.Effort != "xhigh" {
@@ -326,7 +327,7 @@ func TestCursorResponsesDiscoveryPreservesToolHistoryAndStreamState(t *testing.T
 		_, _ = w.Write([]byte(stream))
 	})
 	a := activeAccount()
-	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model"}}, {Provider: "sub-grok", Models: []string{"grok-model"}}}
+	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model"}}, {Provider: "sub-grok", Models: []string{"grok-model"}}, {Provider: "sub-gemini", Models: []string{"gemini-model"}}}
 	setModelsDev(t, s, testModelData)
 	if err := s.store.save(&a); err != nil {
 		t.Fatal(err)
@@ -342,7 +343,7 @@ func TestCursorResponsesDiscoveryPreservesToolHistoryAndStreamState(t *testing.T
 				APITypes []string `json:"api_types"`
 			} `json:"data"`
 		}
-		if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil || w.Code != 200 || len(catalog.Data) != 2 {
+		if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil || w.Code != 200 || len(catalog.Data) != 3 {
 			t.Fatalf("model discovery failed: %d %s", w.Code, w.Body.String())
 		}
 		for _, model := range catalog.Data {
@@ -362,7 +363,7 @@ func TestCursorResponsesDiscoveryPreservesToolHistoryAndStreamState(t *testing.T
 			}
 		}
 	}
-	if upstreamCalls != 4 {
+	if upstreamCalls != 6 {
 		t.Fatalf("discovered models did not reach Responses: %d calls", upstreamCalls)
 	}
 }
@@ -560,6 +561,7 @@ func TestProxyDefaultsOnlyUnspecifiedOpenAIEffortAndPreservesSettings(t *testing
 		{Provider: "sub-openai", Models: []string{"test-model", "missing-model"}},
 		{Provider: "sub-claude", Models: []string{"budget-model"}},
 		{Provider: "sub-grok", Models: []string{"grok-model"}},
+		{Provider: "sub-gemini", Models: []string{"gemini-model"}},
 	}
 	if err := s.store.save(&a); err != nil {
 		t.Fatal(err)
@@ -577,6 +579,8 @@ func TestProxyDefaultsOnlyUnspecifiedOpenAIEffortAndPreservesSettings(t *testing
 		{"Claude default", `{"model":"budget-model"}`, "sub-claude/budget-model", "", ""},
 		{"Grok default", `{"model":"grok-model"}`, "sub-grok/grok-model", "", ""},
 		{"Grok explicit effort", `{"model":"grok-model","reasoning":{"effort":"xhigh"}}`, "sub-grok/grok-model", "xhigh", ""},
+		{"Gemini default", `{"model":"gemini-model"}`, "sub-gemini/gemini-model", "", ""},
+		{"Gemini explicit effort", `{"model":"gemini-model","reasoning":{"effort":"minimal"}}`, "sub-gemini/gemini-model", "minimal", ""},
 	}
 	for _, path := range []string{"/v1/responses", "/responses"} {
 		for _, tc := range cases {

@@ -6,7 +6,7 @@ export interface User {
   balance: number;
 }
 
-export type Provider = "sub-openai" | "sub-claude" | "sub-grok";
+export type Provider = "sub-openai" | "sub-claude" | "sub-grok" | "sub-gemini";
 
 export interface Model {
   id: string;
@@ -106,6 +106,7 @@ export const providers = [
   { value: "sub-openai", label: "OpenAI" },
   { value: "sub-claude", label: "Claude" },
   { value: "sub-grok", label: "Grok" },
+  { value: "sub-gemini", label: "Gemini" },
 ] satisfies { value: Provider; label: string }[];
 
 export function providerLabel(value: string): string {

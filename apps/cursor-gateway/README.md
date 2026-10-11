@@ -48,11 +48,11 @@ The context setting does not truncate requests or change billing.
 
 | Topic | Behavior |
 | --- | --- |
-| Keys and models | Supports OpenAI, Claude, and Grok. Each key belongs to one API format, and model names must be unique across selected keys |
+| Keys and models | Supports OpenAI, Claude, Grok, and Gemini. Each key belongs to one API format, and model names must be unique across selected keys |
 | Base URL | Uses `/v1`, with compatibility for URLs without it |
-| Protocol | Cursor uses native Responses for OpenAI and Grok, and native Messages for Claude |
+| Protocol | OpenAI and Grok use native Responses, and Claude uses native Messages. Gemini uses Responses in Cursor, with Bifrost converting to the upstream's native Gemini API |
 | Reasoning | Levels come from [models.dev](https://models.dev/), falling back to `low`, `medium`, and `high`. OpenAI requests without effort use `xhigh`. Explicit levels are preserved and validated |
-| Web search | Cursor sends a separate Responses request using the selected model. Bifrost adapts it for Claude. The upstream must support search |
+| Web search | Cursor sends a separate Responses request using the selected model. Bifrost adapts it for Claude and Gemini. The upstream must support search |
 | Caching | OpenAI uses Responses upstream. Cache hits depend on the model, prompt, and upstream policy |
 
 <details>

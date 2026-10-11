@@ -52,6 +52,15 @@ func secretValue(raw json.RawMessage) (string, error) {
 }
 
 func (c *Clients) ensureProvider(ctx context.Context, provider string) error {
+	baseURL := c.config.SubURL
+	base := "openai"
+	switch provider {
+	case "sub-claude":
+		base = "anthropic"
+	case "sub-gemini":
+		base = "gemini"
+		baseURL += "/v1beta"
+	}
 	var existing struct {
 		Network     map[string]json.RawMessage `json:"network_config"`
 		Concurrency json.RawMessage            `json:"concurrency_and_buffer_size"`
@@ -59,17 +68,17 @@ func (c *Clients) ensureProvider(ctx context.Context, provider string) error {
 	}
 	err := c.bifrost(ctx, "/api/providers/"+provider, "GET", nil, &existing)
 	if err == nil {
-		var baseURL string
+		var existingBaseURL string
 		var private bool
-		_ = json.Unmarshal(existing.Network["base_url"], &baseURL)
+		_ = json.Unmarshal(existing.Network["base_url"], &existingBaseURL)
 		_ = json.Unmarshal(existing.Network["allow_private_network"], &private)
-		if baseURL == c.config.SubURL && private {
+		if existingBaseURL == baseURL && private {
 			return nil
 		}
 		if existing.Network == nil {
 			return problem(502, "bifrost_response", "Bifrost did not return a provider configuration")
 		}
-		existing.Network["base_url"], _ = json.Marshal(c.config.SubURL)
+		existing.Network["base_url"], _ = json.Marshal(baseURL)
 		existing.Network["allow_private_network"] = json.RawMessage("true")
 		input := map[string]any{"network_config": existing.Network, "concurrency_and_buffer_size": existing.Concurrency, "custom_provider_config": existing.Custom}
 		return c.bifrost(ctx, "/api/providers/"+provider, "PUT", input, nil)
@@ -78,14 +87,10 @@ func (c *Clients) ensureProvider(ctx context.Context, provider string) error {
 	if !ok || p.Status != 404 {
 		return err
 	}
-	base := "openai"
-	if provider == "sub-claude" {
-		base = "anthropic"
-	}
 	input := map[string]any{
 		"provider": provider,
 		"network_config": map[string]any{
-			"base_url":                           c.config.SubURL,
+			"base_url":                           baseURL,
 			"allow_private_network":              true,
 			"default_request_timeout_in_seconds": 600,
 		},
@@ -166,7 +171,7 @@ func (c *Clients) sync(ctx context.Context, a Account) (Account, error) {
 		bindings = append(bindings, Binding{SourceID: k.ID, Name: k.Name, Group: k.Group.Name, Provider: provider, BifrostID: output.ID, Models: models})
 	}
 	providers := []virtualProvider{}
-	for _, provider := range []string{"sub-openai", "sub-claude", "sub-grok"} {
+	for _, provider := range []string{"sub-openai", "sub-claude", "sub-grok", "sub-gemini"} {
 		ids := []string{}
 		models := []string{}
 		for _, b := range bindings {

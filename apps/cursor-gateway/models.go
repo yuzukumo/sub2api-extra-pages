@@ -108,6 +108,8 @@ func providerName(platform string) string {
 		return "sub-claude"
 	case "grok":
 		return "sub-grok"
+	case "gemini":
+		return "sub-gemini"
 	}
 	return ""
 }
