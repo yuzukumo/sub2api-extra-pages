@@ -18,7 +18,7 @@ docker compose up -d
 
 打开 `http://localhost:6001`。网关和 Bifrost 都需要能够访问填写的 Sub2API 地址。默认的 `http://sub2api:8080` 要求 Sub2API 加入同一个 Compose 网络，也可以直接填写可访问的 Sub2API HTTPS 地址
 
-端口默认只绑定本机。公网部署时使用 HTTPS 反向代理，保留原始 `Host`，正确设置 `X-Forwarded-Proto`，网关会自动生成公开访问地址。反向代理应覆盖外部传入的转发头，并关闭 `/v1/` 和 `/chat/completions` 路径的响应缓冲
+端口默认只绑定本机。公网部署时使用 HTTPS 反向代理，保留原始 `Host`，正确设置 `X-Forwarded-Proto`，网关会自动生成公开访问地址。反向代理应覆盖外部传入的转发头，并关闭 `/v1/`、`/chat/completions` 和 `/responses` 路径的响应缓冲
 
 Bifrost 不发布端口，内部管理员密码已内置，首次启动会自动生成加密密钥。两个具名卷分别保存网关状态、Bifrost 配置及加密密钥，备份时一起保留
 
@@ -45,6 +45,8 @@ OpenAI 来源模型没有收到 Cursor 的 effort 时，网关固定向上游传
 Cursor Private Inference 3.24.12 读取网关的能力字段后，仍按客户端内置模型规则生成思考等级选项。它的选择器不读取 `thinking.levels`，也不使用返回的 effort 列表生成选项。这一版为 `gpt-5.6-sol` 和 `grok-4.7` 提供四档，为 Haiku 4.5 不提供 effort 控件。仅修改网关模型元数据无法覆盖这部分客户端行为
 
 OpenAI 到达 Sub2API 的 `/v1/responses`，保留上游提示词缓存所需的 Responses 调用路径。使用 Responses 不代表一定命中缓存，实际命中仍取决于模型、提示词和上游策略。工具、缓存相关字段会继续传递，流式响应即时刷新，不在网关缓冲
+
+网关同时支持 `POST /v1/responses` 和 `POST /responses`，用于 Cursor 内置 WebSearch。请求复用聊天接口的聚合 key 鉴权、已选模型、原始 key 和思考等级策略，转发到 Bifrost 标准 `/v1/responses` 接口。OpenAI 和 Grok 以 Responses 格式到达 Sub2API，Claude 则由 Bifrost 将请求和搜索工具转换为原生 Messages，再返回带来源引用的 Responses 结果。搜索使用 Cursor 当前选择的模型，需要该模型的上游支持联网搜索。模型发现仍声明 `chat_completions`，使 Cursor 常规对话继续使用现有聊天集成
 
 推理请求超过 30 秒未同步时，会重新检查用户和原 key 状态。轮换聚合 key 后旧 key 失效。重启网关不会丢失聚合 key，但网页登录需要重新登录
 

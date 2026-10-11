@@ -18,7 +18,7 @@ docker compose up -d
 
 Open `http://localhost:6001`. The gateway and Bifrost must both be able to reach the configured Sub2API URL. The default `http://sub2api:8080` requires Sub2API to share the Compose network. An accessible HTTPS Sub2API URL also works
 
-The gateway port binds to localhost. For a public deployment, put it behind your HTTPS reverse proxy and forward the original `Host` and `X-Forwarded-Proto`. The gateway derives its public URL from those headers. Configure the proxy to overwrite forwarded headers and disable response buffering for `/v1/` and `/chat/completions`
+The gateway port binds to localhost. For a public deployment, put it behind your HTTPS reverse proxy and forward the original `Host` and `X-Forwarded-Proto`. The gateway derives its public URL from those headers. Configure the proxy to overwrite forwarded headers and disable response buffering for `/v1/`, `/chat/completions`, and `/responses`
 
 Bifrost has no published port. Its internal administrator password is built in, and its encryption secret is generated on first boot. The two named volumes preserve gateway state, Bifrost keys, and their encryption secrets. Back up both volumes together
 
@@ -45,6 +45,8 @@ When an OpenAI source model receives no effort from Cursor, the gateway forwards
 Cursor Private Inference 3.24.12 uses its own model rules to build reasoning controls after discovering the gateway's capability fields. Its picker ignores `thinking.levels` and does not use the advertised effort list to generate options. This version offers four levels for `gpt-5.6-sol` and `grok-4.7`, and no effort control for Haiku 4.5. Publishing model metadata cannot override that client behavior
 
 OpenAI reaches Sub2API's `/v1/responses`, preserving the Responses path needed for upstream prompt caching. A Responses request alone does not guarantee a cache hit. Cache hits depend on the upstream model, prompt, and provider policy. Tool and cache fields are passed through, and streaming responses are flushed without buffering
+
+The gateway also accepts `POST /v1/responses` and `POST /responses` for Cursor's built-in WebSearch. These requests use the same aggregate-key authentication, selected models, source keys, and reasoning policy as chat requests, and go to Bifrost's standard `/v1/responses` endpoint. OpenAI and Grok reach Sub2API as Responses requests. Bifrost converts Claude requests and its web search tool to the native Messages API, then returns Responses output with source citations. Search uses the model selected in Cursor and requires its upstream to support web search. Model discovery continues to advertise `chat_completions` so regular Cursor conversations keep using the existing chat integration
 
 Source key and user status are refreshed on inference after 30 seconds. Rotating the aggregate key invalidates the previous key. Restarting the gateway preserves aggregate keys but requires signing in again
 

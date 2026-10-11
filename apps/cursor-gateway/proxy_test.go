@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -73,6 +74,133 @@ func TestProxyEnforcesSelectedKeysAndPreservesReasoningToolsAndStreamUsage(t *te
 	}
 	if request("/v1/chat/completions", `{"model":"test-model","reasoning":{"effort":"low"},"reasoning_effort":"high"}`).Code != 400 {
 		t.Fatal("conflicting reasoning levels accepted")
+	}
+}
+
+func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.T) {
+	response := `{"id":"resp-search","object":"response","status":"completed","output":[{"type":"web_search_call","status":"completed"},{"type":"message","content":[{"type":"output_text","text":"Search answer","annotations":[{"type":"url_citation","url":"https://example.com/source","title":"Source"}]}]}],"usage":{"input_tokens":120,"output_tokens":40,"input_tokens_details":{"cached_tokens":80}}}`
+	stream := "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Search answer\"}\n\nevent: response.completed\ndata: " + response + "\n\n"
+	input := json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"Search query"}]}]`)
+	tools := json.RawMessage(`[{"type":"web_search","filters":{"allowed_domains":["example.com"]}}]`)
+	upstreamCalls := 0
+	var forwardedModel string
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexpected Sub2API control request")
+		w.WriteHeader(500)
+	}, func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls++
+		username, password, ok := r.BasicAuth()
+		if r.URL.Path != "/v1/responses" || r.Header.Get("x-bf-vk") != "internal-bifrost-key" || !ok || username != "internal-admin" || password != "internal-password" {
+			t.Error("Responses request used the wrong endpoint or client-controlled credentials")
+		}
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := json.Unmarshal(body["model"], &forwardedModel); err != nil {
+			t.Error(err)
+			return
+		}
+		if !bytes.Equal(body["input"], input) || !bytes.Equal(body["tools"], tools) || string(body["include"]) != `["web_search_call.action.sources"]` || string(body["prompt_cache_key"]) != `"cache-id"` {
+			t.Error("Responses input, search settings, citations or cache settings were altered")
+		}
+		if body["fallbacks"] != nil || body["provider"] != nil || body["api_key"] != nil {
+			t.Error("client-controlled upstream routing survived")
+		}
+		if string(body["stream"]) == "true" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(stream))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(response))
+	})
+	a := activeAccount()
+	a.Bindings = []Binding{
+		{Provider: "sub-openai", Models: []string{"test-model"}},
+		{Provider: "sub-claude", Models: []string{"budget-model"}},
+		{Provider: "sub-grok", Models: []string{"grok-model"}},
+	}
+	setModelsDev(t, s, testModelData)
+	if err := s.store.save(&a); err != nil {
+		t.Fatal(err)
+	}
+	request := func(path, token string, body []byte) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", path, bytes.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("Origin", "https://cursor.example")
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("x-bf-vk", "untrusted-key")
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		return w
+	}
+	for _, path := range []string{"/v1/responses", "/responses"} {
+		for _, token := range []string{"", "invalid-key", a.VirtualKey} {
+			if w := request(path, token, []byte(`{"model":"test-model"}`)); w.Code != 401 {
+				t.Fatalf("invalid public credential accepted on %s: %d", path, w.Code)
+			}
+		}
+		if w := request(path, a.GatewayKey, []byte(`{"model":"unowned-model"}`)); w.Code != 403 || upstreamCalls != 0 {
+			t.Fatalf("unselected model reached Responses upstream on %s", path)
+		}
+		for _, body := range []string{
+			`{"model":"test-model","reasoning":{"effort":"unsupported"}}`,
+			`{"model":"test-model","reasoning":{"effort":"low"},"reasoning_effort":"high"}`,
+		} {
+			if w := request(path, a.GatewayKey, []byte(body)); w.Code != 400 || upstreamCalls != 0 {
+				t.Fatalf("invalid reasoning reached Responses upstream on %s", path)
+			}
+		}
+	}
+	for _, path := range []string{"/v1/responses", "/responses"} {
+		for _, binding := range a.Bindings {
+			for _, streaming := range []bool{false, true} {
+				body, err := json.Marshal(map[string]any{
+					"model": binding.Models[0], "input": input, "tools": tools, "stream": streaming,
+					"include": []string{"web_search_call.action.sources"}, "prompt_cache_key": "cache-id",
+					"fallbacks": []string{"untrusted"}, "provider": "untrusted", "api_key": "untrusted",
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				w := request(path, a.GatewayKey, body)
+				want, contentType := response, "application/json"
+				if streaming {
+					want, contentType = stream, "text/event-stream"
+				}
+				if w.Code != 200 || w.Body.String() != want || w.Header().Get("Content-Type") != contentType || w.Header().Get("X-Accel-Buffering") != "no" || w.Header().Get("Cache-Control") != "no-store" || (streaming && !w.Flushed) {
+					t.Fatalf("Responses search output, citations or usage changed on %s: %d %s", path, w.Code, w.Body.String())
+				}
+				if forwardedModel != binding.Provider+"/"+binding.Models[0] {
+					t.Fatalf("Responses model routed to another source provider: %s", forwardedModel)
+				}
+			}
+		}
+	}
+}
+
+func TestResponsesProxyPreservesUpstreamErrors(t *testing.T) {
+	response := `{"error":{"code":"rate_limit_exceeded","message":"Try again later"}}`
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(response))
+	})
+	a := activeAccount()
+	a.Bindings = []Binding{{Provider: "sub-claude", Models: []string{"budget-model"}}}
+	if err := s.store.save(&a); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/v1/responses", "/responses"} {
+		r := httptest.NewRequest("POST", path, strings.NewReader(`{"model":"budget-model","input":"Search query","tools":[{"type":"web_search"}]}`))
+		r.Header.Set("Authorization", "Bearer "+a.GatewayKey)
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		if w.Code != http.StatusTooManyRequests || w.Body.String() != response {
+			t.Fatalf("Responses upstream error was hidden: %d %s", w.Code, w.Body.String())
+		}
 	}
 }
 
@@ -286,19 +414,22 @@ func TestProxyDefaultsOnlyUnspecifiedOpenAIEffortAndPreservesSettings(t *testing
 		{"Grok default", `{"model":"grok-model"}`, "sub-grok/grok-model", "", ""},
 		{"Grok explicit effort", `{"model":"grok-model","reasoning_effort":"xhigh"}`, "sub-grok/grok-model", "xhigh", ""},
 	}
-	for i, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(tc.input))
-			r.Header.Set("Authorization", "Bearer gateway-key")
-			w := httptest.NewRecorder()
-			s.routes().ServeHTTP(w, r)
-			if w.Code != 200 || len(forwarded) != i+1 {
-				t.Fatalf("reasoning request failed %d %s", w.Code, w.Body.String())
-			}
-			got := forwarded[i]
-			if got.Model != tc.model || got.Reasoning.Effort != tc.effort || got.Reasoning.Summary != tc.summary || got.ChatEffort != nil {
-				t.Fatalf("wrong reasoning or model forwarded: %#v", got)
-			}
-		})
+	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/responses"} {
+		for _, tc := range cases {
+			t.Run(path+"/"+tc.name, func(t *testing.T) {
+				before := len(forwarded)
+				r := httptest.NewRequest("POST", path, strings.NewReader(tc.input))
+				r.Header.Set("Authorization", "Bearer gateway-key")
+				w := httptest.NewRecorder()
+				s.routes().ServeHTTP(w, r)
+				if w.Code != 200 || len(forwarded) != before+1 {
+					t.Fatalf("reasoning request failed %d %s", w.Code, w.Body.String())
+				}
+				got := forwarded[before]
+				if got.Model != tc.model || got.Reasoning.Effort != tc.effort || got.Reasoning.Summary != tc.summary || got.ChatEffort != nil {
+					t.Fatalf("wrong reasoning or model forwarded: %#v", got)
+				}
+			})
+		}
 	}
 }

@@ -79,6 +79,14 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
+	s.proxyToBifrost(w, r, "/cursor/v1/chat/completions")
+}
+
+func (s *Server) proxyResponses(w http.ResponseWriter, r *http.Request) {
+	s.proxyToBifrost(w, r, "/v1/responses")
+}
+
+func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstreamPath string) {
 	a, err := s.inferenceAccount(r)
 	if err != nil {
 		fail(w, err)
@@ -159,7 +167,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), "POST", s.config.BifrostURL+"/cursor/v1/chat/completions", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(r.Context(), "POST", s.config.BifrostURL+upstreamPath, bytes.NewReader(data))
 	if err != nil {
 		fail(w, err)
 		return
