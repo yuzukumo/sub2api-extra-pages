@@ -53,10 +53,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/key/rotate", s.rotate)
 	mux.HandleFunc("GET /v1/models", s.listModels)
 	mux.HandleFunc("GET /models", s.listModels)
-	mux.HandleFunc("POST /v1/chat/completions", s.proxy)
-	mux.HandleFunc("POST /chat/completions", s.proxy)
 	mux.HandleFunc("POST /v1/responses", s.proxyResponses)
 	mux.HandleFunc("POST /responses", s.proxyResponses)
+	mux.HandleFunc("POST /v1/messages", s.proxyMessages)
+	mux.HandleFunc("POST /messages", s.proxyMessages)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, problem(404, "not_found", "Endpoint not found")) })
 	mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) { fail(w, problem(404, "not_found", "Endpoint not found")) })
 	mux.HandleFunc("/", s.static)
@@ -83,7 +83,7 @@ func (s *Server) routes() http.Handler {
 }
 
 func inferencePath(path string) bool {
-	return strings.HasPrefix(path, "/v1/") || path == "/models" || path == "/chat/completions" || path == "/responses"
+	return strings.HasPrefix(path, "/v1/") || path == "/models" || path == "/responses" || path == "/messages"
 }
 
 func (s *Server) publicURL(r *http.Request) string {

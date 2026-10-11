@@ -92,10 +92,8 @@ func (c *Clients) ensureProvider(ctx context.Context, provider string) error {
 		"custom_provider_config": map[string]any{
 			"base_provider_type": base,
 			"allowed_requests": map[string]bool{
-				"responses":              true,
-				"responses_stream":       true,
-				"chat_completion":        true,
-				"chat_completion_stream": true,
+				"responses":        true,
+				"responses_stream": true,
 			},
 		},
 	}

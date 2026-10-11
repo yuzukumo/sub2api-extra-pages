@@ -11,8 +11,14 @@ import (
 )
 
 func (s *Server) inferenceAccount(r *http.Request) (Account, error) {
-	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if token == "" || token == r.Header.Get("Authorization") {
+	authorization := r.Header.Get("Authorization")
+	token := strings.TrimPrefix(authorization, "Bearer ")
+	if authorization == "" && (r.URL.Path == "/v1/messages" || r.URL.Path == "/messages") {
+		token = r.Header.Get("x-api-key")
+	} else if token == authorization {
+		token = ""
+	}
+	if token == "" {
 		return Account{}, problem(401, "unauthorized", "A gateway key is required")
 	}
 	s.work.Lock()
@@ -48,6 +54,10 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	}
 	items := []map[string]any{}
 	for _, m := range s.catalog.models(r.Context(), a, s.config.LimitContextToFirstTier) {
+		apiType := "responses"
+		if m.Provider == "sub-claude" {
+			apiType = "anthropic_messages"
+		}
 		capabilities := map[string]any{
 			"output_modalities":  []string{"text"},
 			"supports_tool_use":  true,
@@ -60,7 +70,7 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 			"id":           m.ID,
 			"object":       "model",
 			"owned_by":     strings.TrimPrefix(m.Provider, "sub-"),
-			"api_types":    []string{"chat_completions"},
+			"api_types":    []string{apiType},
 			"capabilities": capabilities,
 		}
 		if m.ContextWindow > 0 {
@@ -78,12 +88,12 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]any{"object": "list", "data": items})
 }
 
-func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
-	s.proxyToBifrost(w, r, "/cursor/v1/chat/completions")
-}
-
 func (s *Server) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	s.proxyToBifrost(w, r, "/v1/responses")
+}
+
+func (s *Server) proxyMessages(w http.ResponseWriter, r *http.Request) {
+	s.proxyToBifrost(w, r, "/anthropic/v1/messages")
 }
 
 func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstreamPath string) {
@@ -115,48 +125,39 @@ func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstream
 		return
 	}
 	m := models[index]
-	var reasoning map[string]json.RawMessage
-	if raw, ok := body["reasoning"]; ok {
-		if err := json.Unmarshal(raw, &reasoning); err != nil {
+	settingsField := "reasoning"
+	if upstreamPath == "/anthropic/v1/messages" {
+		settingsField = "output_config"
+	}
+	var settings map[string]json.RawMessage
+	if raw, ok := body[settingsField]; ok {
+		if err := json.Unmarshal(raw, &settings); err != nil {
 			fail(w, problem(400, "invalid_effort", "Invalid reasoning settings"))
 			return
 		}
 	}
-	if reasoning == nil {
-		reasoning = map[string]json.RawMessage{}
+	if settings == nil {
+		settings = map[string]json.RawMessage{}
 	}
 	var effort string
-	if raw, ok := reasoning["effort"]; ok {
+	if raw, ok := settings["effort"]; ok {
 		if err := json.Unmarshal(raw, &effort); err != nil {
 			fail(w, problem(400, "invalid_effort", "Invalid reasoning effort"))
 			return
 		}
 	}
-	if raw, ok := body["reasoning_effort"]; ok {
-		var chatEffort string
-		if err := json.Unmarshal(raw, &chatEffort); err != nil {
-			fail(w, problem(400, "invalid_effort", "Invalid reasoning effort"))
-			return
-		}
-		if effort != "" && effort != chatEffort {
-			fail(w, problem(400, "invalid_effort", "Conflicting reasoning efforts"))
-			return
-		}
-		effort = chatEffort
-		delete(body, "reasoning_effort")
-	}
 	if effort != "" && !slices.Contains(m.Efforts, effort) {
 		fail(w, problem(400, "invalid_effort", "This reasoning level is not supported by the model"))
 		return
 	}
-	if effort == "" && m.Provider == "sub-openai" {
+	if effort == "" && m.Provider == "sub-openai" && settingsField == "reasoning" {
 		effort = "xhigh"
 	}
 	if effort != "" {
-		reasoning["effort"], _ = json.Marshal(effort)
+		settings["effort"], _ = json.Marshal(effort)
 	}
-	if len(reasoning) > 0 {
-		body["reasoning"], _ = json.Marshal(reasoning)
+	if len(settings) > 0 {
+		body[settingsField], _ = json.Marshal(settings)
 	}
 	body["model"], _ = json.Marshal(m.Provider + "/" + model)
 	delete(body, "fallbacks")
@@ -174,6 +175,13 @@ func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstream
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", r.Header.Get("Accept"))
+	if upstreamPath == "/anthropic/v1/messages" {
+		for _, name := range []string{"anthropic-version", "anthropic-beta"} {
+			for _, value := range r.Header.Values(name) {
+				req.Header.Add(name, value)
+			}
+		}
+	}
 	req.Header.Set("x-bf-vk", a.VirtualKey)
 	req.SetBasicAuth(s.config.BifrostUsername, s.config.BifrostPassword)
 	client := &http.Client{Transport: s.clients.http.Transport, CheckRedirect: s.clients.http.CheckRedirect}

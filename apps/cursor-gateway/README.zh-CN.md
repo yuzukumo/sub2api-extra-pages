@@ -16,7 +16,7 @@
 
 打开 `http://localhost:6001`。网关和 Bifrost 都需要能访问 Sub2API。默认的 `http://sub2api:8080` 要求服务共享 Docker 网络，也可以填写可访问的 HTTPS 地址。
 
-端口默认只绑定本机。公网使用 HTTPS 反向代理，保留原始 `Host`，由代理设置 `X-Forwarded-Proto`，并关闭 `/v1/`、`/chat/completions` 和 `/responses` 的响应缓冲。
+端口默认只绑定本机。公网使用 HTTPS 反向代理，保留原始 `Host`，由代理设置 `X-Forwarded-Proto`，并关闭 `/v1/`、`/responses` 和 `/messages` 的响应缓冲。
 
 ## 接入 Cursor
 
@@ -50,8 +50,9 @@
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Key 与模型 | 支持 OpenAI、Claude、Grok。一个 key 对应一种 API 格式，所选 key 之间模型名称不能重复                                                            |
 | Base URL   | 使用标准`/v1`，也兼容不带 `/v1` 的地址                                                                                                      |
+| 协议       | OpenAI 和 Grok 使用原生 Responses，Claude 使用原生 Messages |
 | 思考等级   | 来自[models.dev](https://models.dev/)，缺失时使用 `low`、`medium`、`high`。OpenAI 请求未填写 effort 时使用 `xhigh`，显式等级会保留并校验 |
-| 联网搜索   | 使用 Cursor 当前选择的模型，三家都支持转发，实际搜索需要上游支持                                                                                |
+| 联网搜索   | Cursor 使用所选模型单独请求 Responses，Claude 由 Bifrost 转换。实际搜索需要上游支持 |
 | 缓存       | OpenAI 使用 Responses 调用上游，是否命中取决于模型、提示词和上游策略                                                                            |
 
 <details>

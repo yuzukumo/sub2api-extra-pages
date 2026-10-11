@@ -16,7 +16,7 @@ Sign in with your Sub2API email and password, select existing keys, and get one 
 
 Open `http://localhost:6001`. The gateway and Bifrost must both reach Sub2API. The default `http://sub2api:8080` requires a shared Docker network. A reachable HTTPS address also works.
 
-The port binds to localhost. For public access, use an HTTPS reverse proxy. Preserve the original `Host`, set `X-Forwarded-Proto` from the connection, and disable buffering for `/v1/`, `/chat/completions`, and `/responses`.
+The port binds to localhost. For public access, use an HTTPS reverse proxy. Preserve the original `Host`, set `X-Forwarded-Proto` from the connection, and disable buffering for `/v1/`, `/responses`, and `/messages`.
 
 ## Connect Cursor
 
@@ -50,8 +50,9 @@ The context setting does not truncate requests or change billing.
 | --- | --- |
 | Keys and models | Supports OpenAI, Claude, and Grok. Each key belongs to one API format, and model names must be unique across selected keys |
 | Base URL | Uses `/v1`, with compatibility for URLs without it |
+| Protocol | Cursor uses native Responses for OpenAI and Grok, and native Messages for Claude |
 | Reasoning | Levels come from [models.dev](https://models.dev/), falling back to `low`, `medium`, and `high`. OpenAI requests without effort use `xhigh`. Explicit levels are preserved and validated |
-| Web search | Uses the model selected in Cursor. OpenAI, Claude, and Grok work when the upstream supports search |
+| Web search | Cursor sends a separate Responses request using the selected model. Bifrost adapts it for Claude. The upstream must support search |
 | Caching | OpenAI uses Responses upstream. Cache hits depend on the model, prompt, and upstream policy |
 
 <details>

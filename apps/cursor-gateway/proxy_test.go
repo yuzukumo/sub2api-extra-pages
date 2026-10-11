@@ -11,72 +11,6 @@ import (
 	"time"
 )
 
-func TestProxyEnforcesSelectedKeysAndPreservesReasoningToolsAndStreamUsage(t *testing.T) {
-	upstreamCalls := 0
-	sse := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"tool-1\"}]}}]}\n\ndata: {\"usage\":{\"prompt_tokens_details\":{\"cached_tokens\":8}}}\n\ndata: [DONE]\n\n"
-	s := testServer(t, func(w http.ResponseWriter, r *http.Request) { t.Error("unexpected sub request"); w.WriteHeader(500) }, func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalls++
-		if r.URL.Path != "/cursor/v1/chat/completions" || r.Header.Get("x-bf-vk") != "internal-bifrost-key" {
-			t.Error("wrong inference route or identity")
-		}
-		username, password, ok := r.BasicAuth()
-		if !ok || username != "internal-admin" || password != "internal-password" {
-			t.Error("client overrode internal authentication")
-		}
-		var body map[string]json.RawMessage
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Error(err)
-		}
-		var model string
-		_ = json.Unmarshal(body["model"], &model)
-		if model != "sub-openai/test-model" {
-			t.Error("model not mapped to its source provider")
-		}
-		var reasoning struct {
-			Effort string `json:"effort"`
-		}
-		_ = json.Unmarshal(body["reasoning"], &reasoning)
-		if reasoning.Effort != "high" {
-			t.Error("reasoning level lost")
-		}
-		if body["reasoning_effort"] != nil || body["fallbacks"] != nil || body["api_key"] != nil || body["tools"] == nil || body["prompt_cache_key"] == nil {
-			t.Error("unsafe routing or required request fields mishandled")
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(200)
-		_, _ = w.Write([]byte(sse))
-	})
-	a := activeAccount()
-	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model"}}}
-	setModelsDev(t, s, testModelData)
-	if err := s.store.save(&a); err != nil {
-		t.Fatal(err)
-	}
-	request := func(path, body string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest("POST", path, strings.NewReader(body))
-		r.Header.Set("Authorization", "Bearer gateway-key")
-		r.Header.Set("x-bf-vk", "untrusted-key")
-		w := httptest.NewRecorder()
-		s.routes().ServeHTTP(w, r)
-		return w
-	}
-	if request("/v1/chat/completions", `{"model":"unowned-model"}`).Code != 403 || request("/chat/completions", `{"model":"foreign-model"}`).Code != 403 || upstreamCalls != 0 {
-		t.Fatal("blocked model forwarded")
-	}
-	if request("/v1/chat/completions", `{"model":"test-model","reasoning_effort":"unsupported"}`).Code != 400 || upstreamCalls != 0 {
-		t.Fatal("unconfigured reasoning level forwarded")
-	}
-	for i, path := range []string{"/v1/chat/completions", "/chat/completions"} {
-		w := request(path, `{"model":"test-model","messages":[{"role":"user","content":"Hello"}],"stream":true,"reasoning_effort":"high","tools":[{"type":"function","function":{"name":"test"}}],"prompt_cache_key":"cache-id","fallbacks":["untrusted"],"api_key":"untrusted"}`)
-		if w.Code != 200 || w.Body.String() != sse || upstreamCalls != i+1 {
-			t.Fatal("stream response or usage was altered")
-		}
-	}
-	if request("/v1/chat/completions", `{"model":"test-model","reasoning":{"effort":"low"},"reasoning_effort":"high"}`).Code != 400 {
-		t.Fatal("conflicting reasoning levels accepted")
-	}
-}
-
 func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.T) {
 	response := `{"id":"resp-search","object":"response","status":"completed","output":[{"type":"web_search_call","status":"completed"},{"type":"message","content":[{"type":"output_text","text":"Search answer","annotations":[{"type":"url_citation","url":"https://example.com/source","title":"Source"}]}]}],"usage":{"input_tokens":120,"output_tokens":40,"input_tokens_details":{"cached_tokens":80}}}`
 	stream := "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Search answer\"}\n\nevent: response.completed\ndata: " + response + "\n\n"
@@ -147,7 +81,8 @@ func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.
 		}
 		for _, body := range []string{
 			`{"model":"test-model","reasoning":{"effort":"unsupported"}}`,
-			`{"model":"test-model","reasoning":{"effort":"low"},"reasoning_effort":"high"}`,
+			`{"model":"test-model","reasoning":{"effort":42}}`,
+			`{"model":"test-model","reasoning":"invalid"}`,
 		} {
 			if w := request(path, a.GatewayKey, []byte(body)); w.Code != 400 || upstreamCalls != 0 {
 				t.Fatalf("invalid reasoning reached Responses upstream on %s", path)
@@ -181,26 +116,254 @@ func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.
 	}
 }
 
-func TestResponsesProxyPreservesUpstreamErrors(t *testing.T) {
+func TestRemovedChatEndpointsDoNotReachUpstream(t *testing.T) {
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("removed endpoint reached Sub2API")
+		w.WriteHeader(500)
+	}, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("removed endpoint reached Bifrost")
+		w.WriteHeader(500)
+	})
+	a := activeAccount()
+	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model"}}}
+	if err := s.store.save(&a); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/v1/chat/completions", "/chat/completions", "/cursor/v1/chat/completions"} {
+		r := httptest.NewRequest("POST", path, strings.NewReader(`{"model":"test-model","messages":[{"role":"user","content":"Hello"}]}`))
+		r.Header.Set("Authorization", "Bearer "+a.GatewayKey)
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		if w.Code < 400 {
+			t.Fatalf("removed endpoint still accepts inference on %s", path)
+		}
+	}
+}
+
+func TestInferenceProxyPreservesUpstreamErrors(t *testing.T) {
 	response := `{"error":{"code":"rate_limit_exceeded","message":"Try again later"}}`
+	nativeResponse := `{"type":"error","error":{"type":"rate_limit_error","message":"Try again later"}}`
 	s := testServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(response))
+		if r.URL.Path == "/anthropic/v1/messages" {
+			_, _ = w.Write([]byte(nativeResponse))
+		} else {
+			_, _ = w.Write([]byte(response))
+		}
 	})
 	a := activeAccount()
 	a.Bindings = []Binding{{Provider: "sub-claude", Models: []string{"budget-model"}}}
 	if err := s.store.save(&a); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/v1/responses", "/responses"} {
+	for _, path := range []string{"/v1/responses", "/responses", "/v1/messages", "/messages"} {
 		r := httptest.NewRequest("POST", path, strings.NewReader(`{"model":"budget-model","input":"Search query","tools":[{"type":"web_search"}]}`))
 		r.Header.Set("Authorization", "Bearer "+a.GatewayKey)
 		w := httptest.NewRecorder()
 		s.routes().ServeHTTP(w, r)
-		if w.Code != http.StatusTooManyRequests || w.Body.String() != response {
-			t.Fatalf("Responses upstream error was hidden: %d %s", w.Code, w.Body.String())
+		want := response
+		if strings.HasSuffix(path, "/messages") {
+			want = nativeResponse
 		}
+		if w.Code != http.StatusTooManyRequests || w.Body.String() != want {
+			t.Fatalf("upstream error was hidden: %d %s", w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestMessagesProxyPreservesNativeToolHistoryThinkingSearchAndUsage(t *testing.T) {
+	fields := map[string]json.RawMessage{
+		"system":        json.RawMessage(`[{"type":"text","text":"Complete the task","cache_control":{"type":"ephemeral"}}]`),
+		"messages":      json.RawMessage(`[{"role":"user","content":"Inspect the project"},{"role":"assistant","content":[{"type":"thinking","thinking":"Inspect first","signature":"opaque-signature"},{"type":"tool_use","id":"tool-1","name":"inspect","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"Project inspected"}]}]`),
+		"thinking":      json.RawMessage(`{"type":"adaptive","display":"summarized"}`),
+		"output_config": json.RawMessage(`{"effort":"high","format":{"type":"json_schema","schema":{"type":"object"}}}`),
+		"tools":         json.RawMessage(`[{"name":"inspect","input_schema":{"type":"object"}},{"type":"web_search_20250305","name":"web_search","max_uses":2}]`),
+		"max_tokens":    json.RawMessage(`2048`),
+	}
+	response := `{"id":"msg-test","type":"message","role":"assistant","content":[{"type":"text","text":"Search answer","citations":[{"type":"web_search_result_location","url":"https://example.com/source","title":"Source","cited_text":"Evidence"}]}],"stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":80}}`
+	stream := "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"tool-next\",\"name\":\"inspect\",\"input\":{}}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{}\"}}\n\n" +
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":20,\"cache_read_input_tokens\":80}}\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	upstreamCalls := 0
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexpected Sub2API control request")
+		w.WriteHeader(500)
+	}, func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls++
+		username, password, ok := r.BasicAuth()
+		if r.URL.Path != "/anthropic/v1/messages" || r.Header.Get("x-bf-vk") != "internal-bifrost-key" || !ok || username != "internal-admin" || password != "internal-password" || r.Header.Get("x-api-key") != "" {
+			t.Error("native Messages used the wrong route or client-controlled credentials")
+		}
+		if r.Header.Get("anthropic-version") != "2023-06-01" || !slices.Equal(r.Header.Values("anthropic-beta"), []string{"test-beta-a", "test-beta-b"}) {
+			t.Error("native Messages lost its API version or beta headers")
+		}
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if string(body["model"]) != `"sub-claude/budget-model"` || body["fallbacks"] != nil || body["provider"] != nil || body["api_key"] != nil || body["reasoning"] != nil {
+			t.Error("native Messages changed the source model or injected foreign settings")
+		}
+		for name, want := range fields {
+			if !bytes.Equal(body[name], want) {
+				t.Errorf("native Messages changed %s", name)
+			}
+		}
+		if string(body["stream"]) == "true" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(stream))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(response))
+	})
+	a := activeAccount()
+	a.Bindings = []Binding{{Provider: "sub-claude", Models: []string{"budget-model"}}}
+	setModelsDev(t, s, testModelData)
+	if err := s.store.save(&a); err != nil {
+		t.Fatal(err)
+	}
+	request := func(path, authorization, apiKey, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
+		r.Header.Set("Authorization", authorization)
+		r.Header.Set("x-api-key", apiKey)
+		r.Header.Set("Origin", "https://cursor.example")
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("x-bf-vk", "untrusted-key")
+		r.Header.Set("anthropic-version", "2023-06-01")
+		r.Header.Add("anthropic-beta", "test-beta-a")
+		r.Header.Add("anthropic-beta", "test-beta-b")
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		return w
+	}
+	for _, path := range []string{"/v1/messages", "/messages"} {
+		for _, token := range []string{"", "invalid-key", a.VirtualKey} {
+			if w := request(path, "", token, `{"model":"budget-model"}`); w.Code != 401 || upstreamCalls != 0 {
+				t.Fatalf("invalid native Messages credential accepted on %s: %d", path, w.Code)
+			}
+		}
+		if w := request(path, "Bearer invalid-key", a.GatewayKey, `{"model":"budget-model"}`); w.Code != 401 || upstreamCalls != 0 {
+			t.Fatal("API key overrode invalid explicit Authorization")
+		}
+		if w := request(path, "", a.GatewayKey, `{"model":"unselected-model"}`); w.Code != 403 || upstreamCalls != 0 {
+			t.Fatal("unselected model reached native Messages upstream")
+		}
+		for _, settings := range []string{`{"effort":"unsupported"}`, `{"effort":42}`, `"invalid"`} {
+			if w := request(path, "", a.GatewayKey, `{"model":"budget-model","output_config":`+settings+`}`); w.Code != 400 || upstreamCalls != 0 {
+				t.Fatal("invalid native effort reached upstream")
+			}
+		}
+	}
+	if w := request("/responses", "", a.GatewayKey, `{"model":"budget-model"}`); w.Code != 401 || upstreamCalls != 0 {
+		t.Fatal("native API key authentication leaked into the Responses endpoint")
+	}
+	for _, path := range []string{"/v1/messages", "/messages"} {
+		for _, streaming := range []bool{false, true} {
+			body := map[string]any{"model": "budget-model", "stream": streaming, "fallbacks": []string{"untrusted"}, "provider": "untrusted", "api_key": "untrusted"}
+			for name, value := range fields {
+				body[name] = value
+			}
+			data, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, authorization := range []string{"", "Bearer " + a.GatewayKey} {
+				w := request(path, authorization, a.GatewayKey, string(data))
+				want, contentType := response, "application/json"
+				if streaming {
+					want, contentType = stream, "text/event-stream"
+				}
+				if w.Code != 200 || w.Body.String() != want || w.Header().Get("Content-Type") != contentType || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("X-Accel-Buffering") != "no" || (streaming && !w.Flushed) {
+					t.Fatalf("native tools, citations, usage or stream changed on %s: %d %s", path, w.Code, w.Body.String())
+				}
+			}
+		}
+	}
+	if upstreamCalls != 8 {
+		t.Fatalf("native Messages requests did not reach upstream: %d", upstreamCalls)
+	}
+}
+
+func TestCursorResponsesDiscoveryPreservesToolHistoryAndStreamState(t *testing.T) {
+	input := json.RawMessage(`[{"role":"user","content":"Inspect the project"},{"type":"reasoning","id":"rs-test","summary":[],"encrypted_content":"opaque-state"},{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I will inspect the project"}]},{"type":"function_call","call_id":"call-test","name":"inspect","arguments":"{}"},{"type":"function_call_output","call_id":"call-test","output":"Project inspected"}]`)
+	stream := "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"type\":\"function_call\",\"id\":\"fc-test\",\"call_id\":\"call-next\",\"name\":\"verify\",\"arguments\":\"\"}}\n\nevent: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"delta\":\"{}\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"encrypted_content\":\"next-state\"},{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"commentary\",\"content\":[{\"type\":\"output_text\",\"text\":\"I will verify the result\"}]},{\"type\":\"function_call\",\"call_id\":\"call-next\",\"name\":\"verify\",\"arguments\":\"{}\"}],\"usage\":{\"input_tokens\":100,\"output_tokens\":20,\"input_tokens_details\":{\"cached_tokens\":80}}}}\n\n"
+	upstreamCalls := 0
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexpected Sub2API control request")
+		w.WriteHeader(500)
+	}, func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls++
+		if r.URL.Path != "/v1/responses" {
+			t.Errorf("Cursor discovery selected a lossy Chat conversion: %s", r.URL.Path)
+		}
+		var body struct {
+			Model     string          `json:"model"`
+			Input     json.RawMessage `json:"input"`
+			Store     bool            `json:"store"`
+			Reasoning struct {
+				Effort string `json:"effort"`
+			} `json:"reasoning"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if !bytes.Equal(body.Input, input) || body.Store {
+			t.Error("assistant phase, reasoning state or tool history changed")
+		}
+		if body.Model != "sub-openai/test-model" && body.Model != "sub-grok/grok-model" {
+			t.Error("model used the wrong source provider")
+		}
+		if body.Model == "sub-openai/test-model" && body.Reasoning.Effort != "xhigh" {
+			t.Error("native Responses lost the default OpenAI effort")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	})
+	a := activeAccount()
+	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model"}}, {Provider: "sub-grok", Models: []string{"grok-model"}}}
+	setModelsDev(t, s, testModelData)
+	if err := s.store.save(&a); err != nil {
+		t.Fatal(err)
+	}
+	for _, prefix := range []string{"/v1", ""} {
+		r := httptest.NewRequest("GET", prefix+"/models", nil)
+		r.Header.Set("Authorization", "Bearer "+a.GatewayKey)
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		var catalog struct {
+			Data []struct {
+				ID       string   `json:"id"`
+				APITypes []string `json:"api_types"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil || w.Code != 200 || len(catalog.Data) != 2 {
+			t.Fatalf("model discovery failed: %d %s", w.Code, w.Body.String())
+		}
+		for _, model := range catalog.Data {
+			if !slices.Equal(model.APITypes, []string{"responses"}) {
+				t.Fatalf("Cursor would use Chat conversion for %s", model.ID)
+			}
+			body, err := json.Marshal(map[string]any{"model": model.ID, "input": input, "stream": true, "store": false, "tools": []map[string]string{{"type": "function", "name": "verify"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := httptest.NewRequest("POST", prefix+"/"+model.APITypes[0], bytes.NewReader(body))
+			r.Header.Set("Authorization", "Bearer "+a.GatewayKey)
+			w := httptest.NewRecorder()
+			s.routes().ServeHTTP(w, r)
+			if w.Code != 200 || w.Body.String() != stream || !w.Flushed {
+				t.Fatalf("Cursor lost native tool events, phase, reasoning state or cache usage: %d %s", w.Code, w.Body.String())
+			}
+		}
+	}
+	if upstreamCalls != 4 {
+		t.Fatalf("discovered models did not reach Responses: %d calls", upstreamCalls)
 	}
 }
 
@@ -248,7 +411,11 @@ func TestModelListingAggregatesSelectedKeysWithoutAdministratorSetup(t *testing.
 		}
 		for _, model := range result.Data {
 			capabilities := model.Capabilities
-			if !slices.Equal(model.APITypes, []string{"chat_completions"}) || !capabilities.SupportsToolUse || !capabilities.SupportsStreaming || !slices.Contains(capabilities.OutputModalities, "text") {
+			apiType := "responses"
+			if model.ID == "budget-model" {
+				apiType = "anthropic_messages"
+			}
+			if !slices.Equal(model.APITypes, []string{apiType}) || !capabilities.SupportsToolUse || !capabilities.SupportsStreaming || !slices.Contains(capabilities.OutputModalities, "text") {
 				t.Fatal("model discovery cannot identify the gateway's supported inference protocol")
 			}
 			if !capabilities.SupportsReasoning || !slices.Equal(capabilities.ReasoningEffort, model.Thinking.Levels) || capabilities.ContextLength != model.ContextWindow {
@@ -377,7 +544,6 @@ func TestProxyDefaultsOnlyUnspecifiedOpenAIEffortAndPreservesSettings(t *testing
 			Effort  string `json:"effort"`
 			Summary string `json:"summary"`
 		} `json:"reasoning"`
-		ChatEffort *string `json:"reasoning_effort"`
 	}
 	var forwarded []requestBody
 	s := testServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }, func(w http.ResponseWriter, r *http.Request) {
@@ -402,19 +568,17 @@ func TestProxyDefaultsOnlyUnspecifiedOpenAIEffortAndPreservesSettings(t *testing
 		name, input, model, effort, summary string
 	}{
 		{"omitted", `{"model":"test-model"}`, "sub-openai/test-model", "xhigh", ""},
-		{"empty chat effort", `{"model":"test-model","reasoning_effort":""}`, "sub-openai/test-model", "xhigh", ""},
-		{"null chat effort", `{"model":"test-model","reasoning_effort":null}`, "sub-openai/test-model", "xhigh", ""},
 		{"empty response effort", `{"model":"test-model","reasoning":{"effort":""}}`, "sub-openai/test-model", "xhigh", ""},
 		{"null response effort", `{"model":"test-model","reasoning":{"effort":null}}`, "sub-openai/test-model", "xhigh", ""},
 		{"preserve summary", `{"model":"test-model","reasoning":{"summary":"auto"}}`, "sub-openai/test-model", "xhigh", "auto"},
 		{"missing metadata", `{"model":"missing-model"}`, "sub-openai/missing-model", "xhigh", ""},
 		{"explicit response effort", `{"model":"test-model","reasoning":{"effort":"future-effort"}}`, "sub-openai/test-model", "future-effort", ""},
-		{"explicit chat effort", `{"model":"missing-model","reasoning_effort":"medium"}`, "sub-openai/missing-model", "medium", ""},
+		{"explicit effort without metadata", `{"model":"missing-model","reasoning":{"effort":"medium"}}`, "sub-openai/missing-model", "medium", ""},
 		{"Claude default", `{"model":"budget-model"}`, "sub-claude/budget-model", "", ""},
 		{"Grok default", `{"model":"grok-model"}`, "sub-grok/grok-model", "", ""},
-		{"Grok explicit effort", `{"model":"grok-model","reasoning_effort":"xhigh"}`, "sub-grok/grok-model", "xhigh", ""},
+		{"Grok explicit effort", `{"model":"grok-model","reasoning":{"effort":"xhigh"}}`, "sub-grok/grok-model", "xhigh", ""},
 	}
-	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/responses"} {
+	for _, path := range []string{"/v1/responses", "/responses"} {
 		for _, tc := range cases {
 			t.Run(path+"/"+tc.name, func(t *testing.T) {
 				before := len(forwarded)
@@ -426,7 +590,7 @@ func TestProxyDefaultsOnlyUnspecifiedOpenAIEffortAndPreservesSettings(t *testing
 					t.Fatalf("reasoning request failed %d %s", w.Code, w.Body.String())
 				}
 				got := forwarded[before]
-				if got.Model != tc.model || got.Reasoning.Effort != tc.effort || got.Reasoning.Summary != tc.summary || got.ChatEffort != nil {
+				if got.Model != tc.model || got.Reasoning.Effort != tc.effort || got.Reasoning.Summary != tc.summary {
 					t.Fatalf("wrong reasoning or model forwarded: %#v", got)
 				}
 			})
