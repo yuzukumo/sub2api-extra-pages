@@ -6,9 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 type Store struct {
@@ -78,9 +80,10 @@ func openStore(dir string) (*Store, error) {
 		changed = true
 	}
 	if changed {
-		if err := s.save(nil); err != nil {
-			return nil, err
-		}
+		return s, s.saveState(nil, time.Now(), true)
+	}
+	if err := s.save(nil); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -95,6 +98,14 @@ func (s *Store) snapshot() State {
 }
 
 func (s *Store) save(account *Account) error {
+	return s.saveAt(account, time.Now())
+}
+
+func (s *Store) saveAt(account *Account, now time.Time) error {
+	return s.saveState(account, now, false)
+}
+
+func (s *Store) saveState(account *Account, now time.Time, force bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data, err := json.Marshal(s.state)
@@ -106,7 +117,19 @@ func (s *Store) save(account *Account) error {
 		return err
 	}
 	if account != nil {
-		next.Accounts[account.User.ID] = *account
+		copy := *account
+		copy.ContextOverrides = maps.Clone(account.ContextOverrides)
+		next.Accounts[account.User.ID] = copy
+	}
+	changed := account != nil || force
+	for id, a := range next.Accounts {
+		if reconcileContextOverrides(&a, now) {
+			next.Accounts[id] = a
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
 	}
 	plain, err := json.Marshal(next)
 	if err != nil {
@@ -137,5 +160,8 @@ func (s *Store) save(account *Account) error {
 		return err
 	}
 	s.state = next
+	if account != nil {
+		account.ContextOverrides = maps.Clone(next.Accounts[account.User.ID].ContextOverrides)
+	}
 	return nil
 }

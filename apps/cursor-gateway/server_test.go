@@ -39,6 +39,101 @@ func activeAccount() Account {
 	return Account{User: User{ID: 7, Role: "user", Status: "active"}, AccessToken: "sub-token", TokenExpires: time.Now().Add(time.Hour), VirtualKey: "internal-bifrost-key", GatewayKey: "gateway-key", SyncedAt: time.Now(), SelectedSourceIDs: []int64{}, Bindings: []Binding{}}
 }
 
+func TestModelContextUpdatesAreOwnedDurableAndVisibleToCursor(t *testing.T) {
+	a := activeAccount()
+	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model"}}}
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(w, map[string]any{"code": 0, "data": a.User})
+	}, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("context changes must not mutate Bifrost")
+		w.WriteHeader(500)
+	})
+	setModelsDev(t, s, testModelData)
+	b := a
+	b.User.ID = 8
+	b.GatewayKey = "other-gateway-key"
+	for _, account := range []*Account{&a, &b} {
+		if err := s.store.save(account); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unauthorized := httptest.NewRecorder()
+	r := httptest.NewRequest("PUT", "/api/models/context", strings.NewReader(`{"model":"test-model","context_window":64000}`))
+	r.Header.Set("Content-Type", "application/json")
+	s.routes().ServeHTTP(unauthorized, r)
+	if unauthorized.Code != 401 {
+		t.Fatal("context update did not require authentication")
+	}
+	for _, body := range []string{`{"model":"test-model","context_window":0}`, `{"model":"test-model","context_window":-1}`, `{"model":"test-model","context_window":1.5}`, `{"model":"test-model","context_window":9007199254740992}`, `{"model":"test-model","context_window":"64000"}`, `{"model":"test-model","context_window":64000,"user_id":8}`} {
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, sessionRequest(s, "PUT", "/api/models/context", body))
+		if w.Code != 400 {
+			t.Fatalf("invalid context accepted: %s, %d", body, w.Code)
+		}
+	}
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, sessionRequest(s, "PUT", "/api/models/context", `{"model":"unowned-model","context_window":64000}`))
+	if w.Code != 403 {
+		t.Fatal("unavailable model override accepted")
+	}
+	w = httptest.NewRecorder()
+	s.routes().ServeHTTP(w, sessionRequest(s, "PUT", "/api/models/context", `{"model":"test-model","context_window":64000}`))
+	if w.Code != 200 {
+		t.Fatalf("save failed: %s", w.Body.String())
+	}
+	var result struct {
+		Models []Model `json:"models"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Models) != 1 || result.Models[0].ContextWindow != 64000 || result.Models[0].ContextWindowOverride != 64000 {
+		t.Fatal("account response did not include custom context")
+	}
+	reopened, err := openStore(s.store.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.store = reopened
+	for _, test := range []struct {
+		key  string
+		want int
+	}{{a.GatewayKey, 64000}, {b.GatewayKey, 1200}} {
+		for _, path := range []string{"/v1/models", "/models"} {
+			r := httptest.NewRequest("GET", path, nil)
+			r.Header.Set("Authorization", "Bearer "+test.key)
+			w := httptest.NewRecorder()
+			s.routes().ServeHTTP(w, r)
+			var list struct {
+				Data []struct {
+					ContextWindow int `json:"context_window"`
+					Capabilities  struct {
+						ContextLength int `json:"context_length"`
+					} `json:"capabilities"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != 200 || len(list.Data) != 1 || list.Data[0].ContextWindow != test.want || list.Data[0].Capabilities.ContextLength != test.want {
+				t.Fatalf("incorrect user context for %s: %s", path, w.Body.String())
+			}
+		}
+	}
+	w = httptest.NewRecorder()
+	s.routes().ServeHTTP(w, sessionRequest(s, "PUT", "/api/models/context", `{"model":"test-model","context_window":null}`))
+	if w.Code != 200 || len(s.store.snapshot().Accounts[7].ContextOverrides) != 0 {
+		t.Fatal("restore default did not remove override")
+	}
+	result.Models = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Models[0].ContextWindow != 1200 || result.Models[0].ContextWindowOverride != 0 {
+		t.Fatal("restored context did not return to catalog default")
+	}
+}
+
 func sessionRequest(s *Server, method, path, body string) *http.Request {
 	s.sessions[hashToken("test-session")] = session{7, time.Now().Add(time.Hour)}
 	r := httptest.NewRequest(method, path, strings.NewReader(body))

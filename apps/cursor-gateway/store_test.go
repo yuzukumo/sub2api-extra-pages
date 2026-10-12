@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestStoreEncryptsCredentialsAndSurvivesRestart(t *testing.T) {
@@ -44,6 +45,84 @@ func TestStoreEncryptsCredentialsAndSurvivesRestart(t *testing.T) {
 	}
 	if _, err := openStore(dir); err == nil {
 		t.Fatal("accepted tampered state")
+	}
+}
+
+func TestContextOverridesPersistPerUserAndExpireOnlyAfterContinuousAbsence(t *testing.T) {
+	dir := t.TempDir()
+	store, err := openStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	a := Account{User: User{ID: 7}, Bindings: []Binding{{Models: []string{"shared-model", "present-model"}}}, ContextOverrides: map[string]ModelContextOverride{
+		"shared-model": {ContextWindow: 64000}, "present-model": {ContextWindow: 96000},
+	}}
+	b := Account{User: User{ID: 8}, Bindings: []Binding{{Models: []string{"shared-model"}}}, ContextOverrides: map[string]ModelContextOverride{"shared-model": {ContextWindow: 128000}}}
+	for _, account := range []*Account{&a, &b} {
+		if err := store.saveAt(account, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.Bindings = []Binding{{Models: []string{"present-model"}}}
+	if err := store.saveAt(&a, now); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := openStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a = reopened.snapshot().Accounts[7]
+	if a.ContextOverrides["shared-model"].ContextWindow != 64000 || !a.ContextOverrides["shared-model"].MissingSince.Equal(now) || reopened.snapshot().Accounts[8].ContextOverrides["shared-model"].ContextWindow != 128000 {
+		t.Fatal("settings were lost on restart or mixed between users")
+	}
+	a.Bindings = []Binding{{Models: []string{"shared-model", "present-model"}}}
+	if err := reopened.saveAt(&a, now.Add(13*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if a.ContextOverrides["shared-model"].ContextWindow != 64000 || !a.ContextOverrides["shared-model"].MissingSince.IsZero() {
+		t.Fatal("returning model did not recover its setting")
+	}
+	a.Bindings = []Binding{{Models: []string{"present-model"}}}
+	missing := now.Add(14 * 24 * time.Hour)
+	if err := reopened.saveAt(&a, missing); err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.saveAt(nil, missing.Add(14*24*time.Hour-time.Nanosecond)); err != nil {
+		t.Fatal(err)
+	}
+	if reopened.snapshot().Accounts[7].ContextOverrides["shared-model"].ContextWindow != 64000 {
+		t.Fatal("setting expired before 14 days of continuous absence")
+	}
+	if err := reopened.saveAt(nil, missing.Add(14*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	state := reopened.snapshot()
+	if _, ok := state.Accounts[7].ContextOverrides["shared-model"]; ok {
+		t.Fatal("absent model setting was retained after 14 days")
+	}
+	if state.Accounts[7].ContextOverrides["present-model"].ContextWindow != 96000 || state.Accounts[8].ContextOverrides["shared-model"].ContextWindow != 128000 {
+		t.Fatal("cleanup removed available model settings")
+	}
+	a = state.Accounts[7]
+	a.Bindings = []Binding{{Models: []string{"shared-model", "present-model"}}}
+	if err := reopened.saveAt(&a, missing.Add(15*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := a.ContextOverrides["shared-model"]; ok {
+		t.Fatal("expired setting reappeared")
+	}
+	a.Bindings = []Binding{{Models: []string{"present-model"}}}
+	a.ContextOverrides["shared-model"] = ModelContextOverride{ContextWindow: 64000}
+	if err := reopened.saveAt(&a, now.Add(-15*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := openStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := restarted.snapshot().Accounts[7].ContextOverrides["shared-model"]; ok {
+		t.Fatal("restart retained a setting that expired while the server was offline")
 	}
 }
 

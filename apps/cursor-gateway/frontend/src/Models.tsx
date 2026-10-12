@@ -1,8 +1,11 @@
 import { useState } from "react";
 import {
   Badge,
+  Button,
   Group,
   Paper,
+  Modal,
+  NumberInput,
   Stack,
   Table,
   Text,
@@ -11,12 +14,37 @@ import {
   ThemeIcon,
 } from "@mantine/core";
 import { IconBox, IconSearch } from "@tabler/icons-react";
-import { providerLabel, type Account } from "./api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { notifications } from "@mantine/notifications";
+import { api, providerLabel, type Account, type Model } from "./api";
 import { useLocale } from "./locale";
 
 export function Models({ account }: { account: Account }) {
   const { t } = useLocale();
   const [search, setSearch] = useState("");
+  const client = useQueryClient();
+  const [editing, setEditing] = useState<Model | null>(null);
+  const [contextWindow, setContextWindow] = useState<number | string>("");
+  const validContext =
+    typeof contextWindow === "number" &&
+    Number.isSafeInteger(contextWindow) &&
+    contextWindow > 0;
+  const save = useMutation({
+    mutationFn: (value: number | null) =>
+      api<Account>("/models/context", "PUT", {
+        model: editing?.id,
+        context_window: value,
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(["account"], data);
+      setEditing(null);
+      notifications.show({
+        message: t("上下文设置已保存", "Context settings saved"),
+        color: "teal",
+      });
+    },
+    onError: (error) => notifications.show({ message: error.message, color: "red" }),
+  });
   const models = account.models.filter((model) =>
     `${model.id} ${providerLabel(model.provider)}`
       .toLowerCase()
@@ -118,11 +146,35 @@ export function Models({ account }: { account: Account }) {
                     </Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm" c="dimmed">
-                      {model.context_window
-                        ? model.context_window.toLocaleString()
-                        : "-"}
-                    </Text>
+                    <Group gap="xs" wrap="nowrap">
+                      <Stack gap={2}>
+                        <Text size="sm" c="dimmed">
+                          {model.context_window
+                            ? model.context_window.toLocaleString()
+                            : "-"}
+                        </Text>
+                        {model.context_window_override && (
+                          <Text size="xs" c="teal">
+                            {t("自定义", "Custom")}
+                          </Text>
+                        )}
+                      </Stack>
+                      <Button
+                        size="compact-xs"
+                        variant="subtle"
+                        aria-label={t(
+                          `修改 ${model.id} 上下文`,
+                          `Edit context for ${model.id}`,
+                        )}
+                        onClick={() => {
+                          setEditing(model);
+                          setContextWindow(model.context_window || "");
+                          save.reset();
+                        }}
+                      >
+                        {t("修改", "Edit")}
+                      </Button>
+                    </Group>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -142,6 +194,65 @@ export function Models({ account }: { account: Account }) {
           </Stack>
         )}
       </Paper>
+      <Modal
+        opened={editing !== null}
+        onClose={() => {
+          if (!save.isPending) setEditing(null);
+        }}
+        title={t("自定义上下文", "Custom context window")}
+        centered
+      >
+        <Stack>
+          <Text size="sm" fw={500}>
+            {editing?.id}
+          </Text>
+          <Text size="sm" c="dimmed">
+            {t(
+              "设置仅对你的账号生效，Cursor 重新读取模型列表后更新。模型连续 14 天未出现时清理。",
+              "This setting applies only to your account and updates when Cursor reloads the model list. It is removed after the model is absent for 14 consecutive days.",
+            )}
+          </Text>
+          <NumberInput
+            label={t("上下文 token 数", "Context tokens")}
+            value={contextWindow}
+            onChange={setContextWindow}
+            min={1}
+            max={Number.MAX_SAFE_INTEGER}
+            allowDecimal={false}
+            allowNegative={false}
+            thousandSeparator=","
+            disabled={save.isPending}
+          />
+          <Group justify="space-between">
+            <Button
+              variant="subtle"
+              disabled={!editing?.context_window_override || save.isPending}
+              onClick={() => save.mutate(null)}
+            >
+              {t("恢复默认", "Restore default")}
+            </Button>
+            <Group gap="sm">
+              <Button
+                variant="default"
+                disabled={save.isPending}
+                onClick={() => setEditing(null)}
+              >
+                {t("取消", "Cancel")}
+              </Button>
+              <Button
+                loading={save.isPending}
+                disabled={!validContext}
+                onClick={() => {
+                  if (typeof contextWindow === "number")
+                    save.mutate(contextWindow);
+                }}
+              >
+                {t("保存", "Save")}
+              </Button>
+            </Group>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

@@ -14,6 +14,7 @@ export interface Model {
   efforts: string[];
   effort_source: "models.dev" | "default";
   context_window: number;
+  context_window_override?: number;
 }
 
 export interface Binding {

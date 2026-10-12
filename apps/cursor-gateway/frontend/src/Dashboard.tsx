@@ -251,60 +251,6 @@ export function Dashboard({ account }: { account: Account }) {
           </Group>
         </Stack>
       </Paper>
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-        <Paper bg="var(--gateway-surface)">
-          <Group gap="sm" mb="sm">
-            <ThemeIcon variant="light" radius="md">
-              <IconKey size={18} />
-            </ThemeIcon>
-            <Title order={5}>
-              {t("自由选择，统一接入", "Choose keys, connect once")}
-            </Title>
-          </Group>
-          <Text size="sm" c="dimmed">
-            {t(
-              "随时调整要聚合的 key。每次调用继续使用对应的原 key、分组倍率和账户余额",
-              "Change your key selection anytime. Each request uses its original key, group multiplier and account balance",
-            )}
-          </Text>
-          <Button
-            component={Link}
-            to="/keys"
-            variant="subtle"
-            mt="sm"
-            p={0}
-            rightSection={<IconArrowRight size={15} />}
-          >
-            {t("管理 key 选择", "Manage key selection")}
-          </Button>
-        </Paper>
-        <Paper bg="var(--gateway-surface)">
-          <Group gap="sm" mb="sm">
-            <ThemeIcon color="blue" variant="light" radius="md">
-              <IconBox size={18} />
-            </ThemeIcon>
-            <Title order={5}>
-              {t("模型和思考等级", "Models and reasoning levels")}
-            </Title>
-          </Group>
-          <Text size="sm" c="dimmed">
-            {t(
-              "模型来自你勾选的 key，思考等级自动读取 models.dev，无需手动配置",
-              "Models come from your selected keys. Reasoning levels are read from models.dev automatically",
-            )}
-          </Text>
-          <Button
-            component={Link}
-            to="/catalog"
-            variant="subtle"
-            mt="sm"
-            p={0}
-            rightSection={<IconArrowRight size={15} />}
-          >
-            {t("查看可用模型", "View available models")}
-          </Button>
-        </Paper>
-      </SimpleGrid>
       <Modal
         opened={rotateOpened}
         onClose={() => setRotateOpened(false)}

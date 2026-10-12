@@ -182,6 +182,10 @@ func (c *ModelCatalog) models(ctx context.Context, a Account, limitToFirstTier b
 				ContextWindow: spec.contextWindow(limitToFirstTier), MaxOutputTokens: spec.Limit.Output,
 				SupportsVision: slices.Contains(spec.Modalities.Input, "image"),
 			}
+			if setting, ok := a.ContextOverrides[id]; ok && setting.ContextWindow > 0 && (setting.MissingSince.IsZero() || time.Now().Before(setting.MissingSince.Add(14*24*time.Hour))) {
+				m.ContextWindow = setting.ContextWindow
+				m.ContextWindowOverride = setting.ContextWindow
+			}
 			for _, option := range spec.ReasoningOptions {
 				if option.Type == "effort" && len(option.Values) > 0 {
 					m.Efforts = slices.Clone(option.Values)

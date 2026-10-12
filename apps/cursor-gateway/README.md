@@ -44,7 +44,7 @@ Edit settings directly in `docker-compose.yml`, then run `docker compose up -d`:
 | `SUB2API_URL` | `http://sub2api:8080` | Your existing Sub2API address |
 | `LIMIT_CONTEXT_TO_FIRST_TIER` | `"true"` | Limit Cursor's discovered context window to the first models.dev pricing tier. Set `"false"` for the full window |
 
-The context setting does not truncate requests or change billing.
+In **Available models**, each user can customize a model's context window or restore its default. Custom values take precedence over the setting above and survive restarts and temporarily deselecting keys. A successful sync starts the 14-day retention period when a model disappears. If it stays absent, its custom value is removed. Context settings only change the metadata Cursor reads. They do not truncate requests or change billing.
 
 | Topic | Behavior |
 | --- | --- |

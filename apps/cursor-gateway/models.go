@@ -28,13 +28,14 @@ type SourceKey struct {
 }
 
 type Model struct {
-	ID              string   `json:"id"`
-	Provider        string   `json:"provider"`
-	Efforts         []string `json:"efforts"`
-	EffortSource    string   `json:"effort_source"`
-	ContextWindow   int      `json:"context_window"`
-	MaxOutputTokens int      `json:"max_output_tokens"`
-	SupportsVision  bool     `json:"supports_vision"`
+	ID                    string   `json:"id"`
+	Provider              string   `json:"provider"`
+	Efforts               []string `json:"efforts"`
+	EffortSource          string   `json:"effort_source"`
+	ContextWindow         int      `json:"context_window"`
+	ContextWindowOverride int      `json:"context_window_override,omitempty"`
+	MaxOutputTokens       int      `json:"max_output_tokens"`
+	SupportsVision        bool     `json:"supports_vision"`
 }
 
 type Binding struct {
@@ -47,17 +48,53 @@ type Binding struct {
 }
 
 type Account struct {
-	User              User         `json:"user"`
-	AccessToken       string       `json:"access_token"`
-	RefreshToken      string       `json:"refresh_token"`
-	TokenExpires      time.Time    `json:"token_expires"`
-	VirtualID         string       `json:"virtual_id"`
-	VirtualKey        string       `json:"virtual_key"`
-	GatewayKey        string       `json:"gateway_key"`
-	Bindings          []Binding    `json:"bindings"`
-	SelectedSourceIDs []int64      `json:"selected_source_ids"`
-	SourceKeys        []KeySummary `json:"source_keys"`
-	SyncedAt          time.Time    `json:"synced_at"`
+	User              User                            `json:"user"`
+	AccessToken       string                          `json:"access_token"`
+	RefreshToken      string                          `json:"refresh_token"`
+	TokenExpires      time.Time                       `json:"token_expires"`
+	VirtualID         string                          `json:"virtual_id"`
+	VirtualKey        string                          `json:"virtual_key"`
+	GatewayKey        string                          `json:"gateway_key"`
+	Bindings          []Binding                       `json:"bindings"`
+	SelectedSourceIDs []int64                         `json:"selected_source_ids"`
+	SourceKeys        []KeySummary                    `json:"source_keys"`
+	SyncedAt          time.Time                       `json:"synced_at"`
+	ContextOverrides  map[string]ModelContextOverride `json:"context_overrides,omitempty"`
+}
+
+type ModelContextOverride struct {
+	ContextWindow int       `json:"context_window"`
+	MissingSince  time.Time `json:"missing_since,omitempty"`
+}
+
+func reconcileContextOverrides(a *Account, now time.Time) bool {
+	if len(a.ContextOverrides) == 0 {
+		return false
+	}
+	available := map[string]bool{}
+	for _, binding := range a.Bindings {
+		for _, id := range binding.Models {
+			available[id] = true
+		}
+	}
+	changed := false
+	for id, setting := range a.ContextOverrides {
+		if !setting.MissingSince.IsZero() && !now.Before(setting.MissingSince.Add(14*24*time.Hour)) {
+			delete(a.ContextOverrides, id)
+			changed = true
+			continue
+		}
+		if available[id] && !setting.MissingSince.IsZero() {
+			setting.MissingSince = time.Time{}
+		} else if !available[id] && setting.MissingSince.IsZero() {
+			setting.MissingSince = now
+		} else {
+			continue
+		}
+		a.ContextOverrides[id] = setting
+		changed = true
+	}
+	return changed
 }
 
 type KeySummary struct {
