@@ -24,7 +24,8 @@ func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.
 	}, func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls++
 		username, password, ok := r.BasicAuth()
-		if r.URL.Path != "/v1/responses" || r.Header.Get("x-bf-vk") != "internal-bifrost-key" || !ok || username != "internal-admin" || password != "internal-password" {
+		wantUserAgent := "codex_vscode/0.162.0-alpha.17.2 (Mac OS 27.0.1; arm64) unknown (VS Code; 26.1007.21434)"
+		if r.URL.Path != "/v1/responses" || r.Header.Get("x-bf-vk") != "internal-bifrost-key" || r.Header.Get("User-Agent") != wantUserAgent || r.Header.Get("x-bf-eh-user-agent") != wantUserAgent || !ok || username != "internal-admin" || password != "internal-password" {
 			t.Error("Responses request used the wrong endpoint or client-controlled credentials")
 		}
 		var body map[string]json.RawMessage
@@ -65,6 +66,7 @@ func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.
 		r := httptest.NewRequest("POST", path, bytes.NewReader(body))
 		r.Header.Set("Authorization", "Bearer "+token)
 		r.Header.Set("Origin", "https://cursor.example")
+		r.Header.Set("User-Agent", "codex_vscode/0.162.0-alpha.17.2 (Mac OS 27.0.1; arm64) unknown (VS Code; 26.1007.21434)")
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("x-bf-vk", "untrusted-key")
 		w := httptest.NewRecorder()
@@ -195,7 +197,8 @@ func TestMessagesProxyPreservesNativeToolHistoryThinkingSearchAndUsage(t *testin
 	}, func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls++
 		username, password, ok := r.BasicAuth()
-		if r.URL.Path != "/anthropic/v1/messages" || r.Header.Get("x-bf-vk") != "internal-bifrost-key" || !ok || username != "internal-admin" || password != "internal-password" || r.Header.Get("x-api-key") != "" {
+		wantUserAgent := "codex_vscode/0.162.0-alpha.17.2 (Mac OS 27.0.1; arm64) unknown (VS Code; 26.1007.21434)"
+		if r.URL.Path != "/anthropic/v1/messages" || r.Header.Get("x-bf-vk") != "internal-bifrost-key" || r.Header.Get("User-Agent") != wantUserAgent || r.Header.Get("x-bf-eh-user-agent") != wantUserAgent || !ok || username != "internal-admin" || password != "internal-password" || r.Header.Get("x-api-key") != "" {
 			t.Error("native Messages used the wrong route or client-controlled credentials")
 		}
 		if r.Header.Get("anthropic-version") != "2023-06-01" || !slices.Equal(r.Header.Values("anthropic-beta"), []string{"test-beta-a", "test-beta-b"}) {
@@ -233,6 +236,7 @@ func TestMessagesProxyPreservesNativeToolHistoryThinkingSearchAndUsage(t *testin
 		r.Header.Set("Authorization", authorization)
 		r.Header.Set("x-api-key", apiKey)
 		r.Header.Set("Origin", "https://cursor.example")
+		r.Header.Set("User-Agent", "codex_vscode/0.162.0-alpha.17.2 (Mac OS 27.0.1; arm64) unknown (VS Code; 26.1007.21434)")
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("x-bf-vk", "untrusted-key")
 		r.Header.Set("anthropic-version", "2023-06-01")

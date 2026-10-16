@@ -175,6 +175,10 @@ func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstream
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", r.Header.Get("Accept"))
+	if userAgent := r.Header.Get("User-Agent"); userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("x-bf-eh-user-agent", userAgent)
+	}
 	if upstreamPath == "/anthropic/v1/messages" {
 		for _, name := range []string{"anthropic-version", "anthropic-beta"} {
 			for _, value := range r.Header.Values(name) {
