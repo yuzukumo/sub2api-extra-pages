@@ -53,7 +53,7 @@
 | 协议       | OpenAI 和 Grok 使用原生 Responses，Claude 使用原生 Messages。Gemini 在 Cursor 中使用 Responses，由 Bifrost 转为上游 Gemini 原生格式 |
 | 思考等级   | 来自[models.dev](https://models.dev/)，缺失时使用 `low`、`medium`、`high`。OpenAI 请求未填写 effort 时使用 `xhigh`，显式等级会保留并校验 |
 | 联网搜索   | Cursor 使用所选模型单独请求 Responses，Claude 和 Gemini 由 Bifrost 转换。实际搜索需要上游支持 |
-| 缓存       | OpenAI 使用 Responses 调用上游，是否命中取决于模型、提示词和上游策略                                                                            |
+| 缓存       | OpenAI 使用 Responses，保留缓存 key 和会话信息，未提供缓存 key 时根据稳定的对话上下文生成。是否命中取决于模型、提示词和上游策略                                                                            |
 
 <details>
 <summary>部署与兼容性说明</summary>

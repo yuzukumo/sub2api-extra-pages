@@ -53,7 +53,7 @@ In **Available models**, each user can customize a model's context window or res
 | Protocol | OpenAI and Grok use native Responses, and Claude uses native Messages. Gemini uses Responses in Cursor, with Bifrost converting to the upstream's native Gemini API |
 | Reasoning | Levels come from [models.dev](https://models.dev/), falling back to `low`, `medium`, and `high`. OpenAI requests without effort use `xhigh`. Explicit levels are preserved and validated |
 | Web search | Cursor sends a separate Responses request using the selected model. Bifrost adapts it for Claude and Gemini. The upstream must support search |
-| Caching | OpenAI uses Responses upstream. Cache hits depend on the model, prompt, and upstream policy |
+| Caching | OpenAI uses Responses, preserving cache keys and session metadata. Missing cache keys are generated from stable conversation context. Hits depend on the model, prompt, and upstream policy |
 
 <details>
 <summary>Deployment and compatibility notes</summary>

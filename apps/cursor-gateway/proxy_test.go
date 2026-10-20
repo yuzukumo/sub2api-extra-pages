@@ -119,6 +119,91 @@ func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.
 	}
 }
 
+func TestOpenAIProxyPreservesCacheIdentityAcrossTurnsAndIsolatesUsers(t *testing.T) {
+	var forwarded map[string]json.RawMessage
+	var forwardedHeaders http.Header
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexpected Sub2API control request")
+		w.WriteHeader(500)
+	}, func(w http.ResponseWriter, r *http.Request) {
+		forwardedHeaders = r.Header.Clone()
+		if err := json.NewDecoder(r.Body).Decode(&forwarded); err != nil {
+			t.Fatal(err)
+		}
+		respond(w, 200, map[string]string{"status": "completed"})
+	})
+	a := activeAccount()
+	a.Bindings = []Binding{
+		{Provider: "sub-openai", Models: []string{"test-model", "other-openai-model"}},
+		{Provider: "sub-grok", Models: []string{"grok-model"}},
+		{Provider: "sub-gemini", Models: []string{"gemini-model"}},
+		{Provider: "sub-claude", Models: []string{"budget-model"}},
+	}
+	b := a
+	b.User.ID++
+	b.GatewayKey = "another-user-key"
+	for _, account := range []*Account{&a, &b} {
+		if err := s.store.save(account); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setModelsDev(t, s, testModelData)
+	request := func(account Account, model, input, fields string, headers http.Header) string {
+		t.Helper()
+		forwarded = nil
+		r := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(`{"model":"`+model+`","input":`+input+fields+`}`))
+		r.Header = headers.Clone()
+		r.Header.Set("Authorization", "Bearer "+account.GatewayKey)
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("inference failed: %d %s", w.Code, w.Body.String())
+		}
+		var key string
+		_ = json.Unmarshal(forwarded["prompt_cache_key"], &key)
+		return key
+	}
+	first := `[{"role":"developer","content":"Stable instructions"},{"role":"user","content":"hi"}]`
+	next := `[{"role":"developer","content":"Stable instructions"},{"role":"user","content":"hi"},{"role":"assistant","content":"Hello"},{"role":"user","content":"next one"}]`
+	headers := http.Header{}
+	key := request(a, "test-model", first, "", headers)
+	var metadata map[string]string
+	if err := json.Unmarshal(forwarded["client_metadata"], &metadata); err != nil || key == "" || metadata["session_id"] != key || forwardedHeaders.Get("x-bf-passthrough-extra-params") != "true" {
+		t.Fatal("Cursor request did not receive a cache key and matching metadata through Bifrost")
+	}
+	if got := request(a, "test-model", next, "", headers); got != key {
+		t.Fatal("cache identity changed when a conversation continued")
+	}
+	if got := request(b, "test-model", first, "", headers); got == key {
+		t.Fatal("different users shared a generated cache identity")
+	}
+	if got := request(a, "other-openai-model", first, "", headers); got == key {
+		t.Fatal("different models shared a generated cache identity")
+	}
+	if got := request(a, "test-model", `[{"role":"user","content":"different conversation"}]`, "", headers); got == key {
+		t.Fatal("different conversations shared a generated cache identity")
+	}
+	headers.Set("session-id", "header-session")
+	if got := request(a, "test-model", first, "", headers); got != "header-session" || forwardedHeaders.Get("x-bf-eh-session-id") != "header-session" {
+		t.Fatal("client session header did not reach Bifrost's upstream header channel")
+	}
+	fields := `,"prompt_cache_key":"explicit-cache","client_metadata":{"session_id":"body-session","custom":"keep"},"extra_params":{"model":"untrusted"}`
+	if got := request(a, "test-model", first, fields, headers); got != "explicit-cache" {
+		t.Fatal("explicit prompt cache key was overwritten")
+	}
+	if err := json.Unmarshal(forwarded["client_metadata"], &metadata); err != nil || metadata["session_id"] != "body-session" || metadata["custom"] != "keep" || forwarded["extra_params"] != nil {
+		t.Fatal("native metadata was lost or client-controlled Bifrost overrides survived")
+	}
+	if got := request(a, "test-model", first, `,"client_metadata":{"session_id":"metadata-session"}`, http.Header{}); got != "metadata-session" {
+		t.Fatal("existing metadata session was not used for the cache key")
+	}
+	for _, model := range []string{"grok-model", "gemini-model", "budget-model"} {
+		if got := request(a, model, first, "", headers); got != "" || forwarded["client_metadata"] != nil || forwardedHeaders.Get("x-bf-passthrough-extra-params") != "" {
+			t.Fatalf("OpenAI cache preparation affected another provider: %s", model)
+		}
+	}
+}
+
 func TestRemovedChatEndpointsDoNotReachUpstream(t *testing.T) {
 	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Error("removed endpoint reached Sub2API")

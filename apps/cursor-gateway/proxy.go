@@ -159,6 +159,13 @@ func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstream
 	if len(settings) > 0 {
 		body[settingsField], _ = json.Marshal(settings)
 	}
+	if m.Provider == "sub-openai" && upstreamPath == "/v1/responses" {
+		delete(body, "extra_params")
+		if err := prepareOpenAICache(body, r.Header, a.User.ID, model); err != nil {
+			fail(w, err)
+			return
+		}
+	}
 	body["model"], _ = json.Marshal(m.Provider + "/" + model)
 	delete(body, "fallbacks")
 	delete(body, "provider")
@@ -178,6 +185,14 @@ func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstream
 	if userAgent := r.Header.Get("User-Agent"); userAgent != "" {
 		req.Header.Set("User-Agent", userAgent)
 		req.Header.Set("x-bf-eh-user-agent", userAgent)
+	}
+	if m.Provider == "sub-openai" && upstreamPath == "/v1/responses" {
+		req.Header.Set("x-bf-passthrough-extra-params", "true")
+		for _, name := range []string{"session-id", "session_id", "conversation_id", "x-session-affinity", "x-session-id", "x-opencode-session", "x-conversation-id"} {
+			if value := r.Header.Get(name); value != "" {
+				req.Header.Set("x-bf-eh-"+name, value)
+			}
+		}
 	}
 	if upstreamPath == "/anthropic/v1/messages" {
 		for _, name := range []string{"anthropic-version", "anthropic-beta"} {
