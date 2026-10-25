@@ -42,6 +42,7 @@ Edit settings directly in `docker-compose.yml`, then run `docker compose up -d`:
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `SUB2API_URL` | `http://sub2api:8080` | Your existing Sub2API address |
+| `TRUSTED_PROXIES` | Empty | IP addresses or CIDRs of proxies connecting directly to the gateway, separated by commas. Empty uses the connection's source IP |
 | `LIMIT_CONTEXT_TO_FIRST_TIER` | `"true"` | Limit Cursor's discovered context window to the first models.dev pricing tier. Set `"false"` for the full window |
 
 In **Available models**, each user can customize a model's context window or restore its default. Custom values take precedence over the setting above and survive restarts and temporarily deselecting keys. A successful sync starts the 14-day retention period when a model disappears. If it stays absent, its custom value is removed. Context settings only change the metadata Cursor reads. They do not truncate requests or change billing.
@@ -51,7 +52,8 @@ In **Available models**, each user can customize a model's context window or res
 | Keys and models | Supports OpenAI, Claude, Grok, and Gemini. Each key belongs to one API format, and model names must be unique across selected keys |
 | Base URL | Uses `/v1`, with compatibility for URLs without it |
 | Protocol | OpenAI and Grok use native Responses, and Claude uses native Messages. Gemini uses Responses in Cursor, with Bifrost converting to the upstream's native Gemini API |
-| Reasoning | Levels come from [models.dev](https://models.dev/), falling back to `low`, `medium`, and `high`. OpenAI requests without effort use `xhigh`. Explicit levels are preserved and validated |
+| Reasoning | Levels come from [models.dev](https://models.dev/), falling back to `low`, `medium`, and `high`. Explicit client levels are preserved and validated |
+| Injected effort | OpenAI models are identified by models.dev, with a `gpt-` prefix fallback. Choose a level or disable injection in **Available models**. It applies when the client omits effort, defaulting to `xhigh` when supported. Settings are per user and retained like context overrides |
 | Web search | Cursor sends a separate Responses request using the selected model. Bifrost adapts it for Claude and Gemini. The upstream must support search |
 | Caching | OpenAI uses Responses, preserving cache keys and session metadata. Missing cache keys are generated from stable conversation context. Hits depend on the model, prompt, and upstream policy |
 
@@ -59,6 +61,8 @@ In **Available models**, each user can customize a model's context window or res
 <summary>Deployment and compatibility notes</summary>
 
 Bifrost uses its official image and runs internally. No Sub2API administrator key is needed. Source keys and login tokens stay on the server and are encrypted at rest. Back up both named volumes together.
+
+Client IPs reach Sub2API usage records through standard forwarding headers. Set `TRUSTED_PROXIES` to the addresses your reverse proxy uses to connect to the gateway. The proxy must overwrite `X-Forwarded-For` or append the verified connection source. In Docker this is usually the host bridge address or proxy container address, rather than a user address. A proxy that only overwrites `X-Real-IP` is also supported. Prefer an internal connection from Bifrost to Sub2API. If Sub2API uses strict proxy trust, add Bifrost's address to its `server.trusted_proxies`. Public intermediate proxies can still overwrite these headers and lose the original IP.
 
 Selecting no keys disables model access. Rotating the aggregate key invalidates the old one. Restarting the gateway keeps aggregate keys but requires signing in again.
 

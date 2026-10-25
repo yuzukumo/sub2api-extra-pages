@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strings"
@@ -16,6 +17,7 @@ type Config struct {
 	BifrostURL              string
 	BifrostUsername         string
 	BifrostPassword         string
+	TrustedProxies          []netip.Prefix
 	LimitContextToFirstTier bool
 }
 
@@ -42,6 +44,21 @@ func loadConfig() (Config, error) {
 		u, err := url.Parse(value)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return c, fmt.Errorf("invalid service URL")
+		}
+	}
+	if proxies := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES")); proxies != "" {
+		for _, value := range strings.Split(proxies, ",") {
+			value = strings.TrimSpace(value)
+			prefix, err := netip.ParsePrefix(value)
+			if err != nil {
+				addr, addrErr := netip.ParseAddr(value)
+				if addrErr != nil || addr.Zone() != "" {
+					return c, fmt.Errorf("TRUSTED_PROXIES must contain comma-separated IP addresses or CIDRs")
+				}
+				addr = addr.Unmap()
+				prefix = netip.PrefixFrom(addr, addr.BitLen())
+			}
+			c.TrustedProxies = append(c.TrustedProxies, prefix.Masked())
 		}
 	}
 	return c, nil

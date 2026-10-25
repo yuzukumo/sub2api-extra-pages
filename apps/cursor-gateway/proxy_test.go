@@ -5,11 +5,101 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestProxyForwardsClientIPOnlyFromTrustedProxyChains(t *testing.T) {
+	var forwarded http.Header
+	var forwardedPath string
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexpected Sub2API control request")
+		w.WriteHeader(500)
+	}, func(w http.ResponseWriter, r *http.Request) {
+		forwarded = r.Header.Clone()
+		forwardedPath = r.URL.Path
+		jsonResponse(w, map[string]string{"id": "response"})
+	})
+	a := activeAccount()
+	a.Bindings = []Binding{
+		{Provider: "sub-openai", Models: []string{"test-model"}},
+		{Provider: "sub-claude", Models: []string{"budget-model"}},
+		{Provider: "sub-grok", Models: []string{"grok-model"}},
+		{Provider: "sub-gemini", Models: []string{"gemini-model"}},
+	}
+	setModelsDev(t, s, testModelData)
+	if err := s.store.save(&a); err != nil {
+		t.Fatal(err)
+	}
+	proxies := []netip.Prefix{netip.MustParsePrefix("10.9.0.0/24"), netip.MustParsePrefix("fd00:9::/64")}
+	for _, route := range []struct {
+		path, model, upstream string
+	}{
+		{"/v1/responses", "test-model", "/v1/responses"},
+		{"/responses", "grok-model", "/v1/responses"},
+		{"/v1/responses", "gemini-model", "/v1/responses"},
+		{"/v1/responses", "budget-model", "/v1/responses"},
+		{"/v1/messages", "budget-model", "/anthropic/v1/messages"},
+		{"/messages", "budget-model", "/anthropic/v1/messages"},
+	} {
+		for _, test := range []struct {
+			name, remote, real, want string
+			forwarded                []string
+			disableTrust             bool
+		}{
+			{name: "direct IPv4", remote: "203.0.113.42:5000", real: "198.51.100.99", forwarded: []string{"198.51.100.99"}, want: "203.0.113.42"},
+			{name: "direct IPv6", remote: "[2001:db8::42]:5000", real: "198.51.100.99", want: "2001:db8::42"},
+			{name: "mapped IPv4", remote: "[::ffff:203.0.113.42]:5000", want: "203.0.113.42"},
+			{name: "untrusted private peer", remote: "10.8.0.1:5000", forwarded: []string{"203.0.113.42"}, want: "10.8.0.1"},
+			{name: "trust disabled", remote: "10.9.0.1:5000", forwarded: []string{"203.0.113.42"}, want: "10.9.0.1", disableTrust: true},
+			{name: "trusted forwarded IP", remote: "10.9.0.1:5000", forwarded: []string{"203.0.113.42"}, want: "203.0.113.42"},
+			{name: "trusted real IP", remote: "10.9.0.1:5000", real: " 203.0.113.42 ", want: "203.0.113.42"},
+			{name: "trusted real IPv6", remote: "[fd00:9::1]:5000", real: "2001:db8::42", want: "2001:db8::42"},
+			{name: "multiple trusted hops", remote: "10.9.0.1:5000", forwarded: []string{"203.0.113.42, 10.9.0.2"}, want: "203.0.113.42"},
+			{name: "spoofed leading address", remote: "10.9.0.1:5000", real: "198.51.100.99", forwarded: []string{"198.51.100.99, 203.0.113.42, 10.9.0.2"}, want: "203.0.113.42"},
+			{name: "duplicate forwarded headers", remote: "10.9.0.1:5000", forwarded: []string{"198.51.100.99", "203.0.113.42, 10.9.0.2"}, want: "203.0.113.42"},
+			{name: "malformed trusted chain", remote: "10.9.0.1:5000", real: "198.51.100.99", forwarded: []string{"203.0.113.42, invalid"}, want: "10.9.0.1"},
+			{name: "empty forwarded header", remote: "10.9.0.1:5000", real: "198.51.100.99", forwarded: []string{""}, want: "10.9.0.1"},
+			{name: "malformed real IP", remote: "10.9.0.1:5000", real: "203.0.113.42, 198.51.100.99", want: "10.9.0.1"},
+			{name: "scoped header address", remote: "10.9.0.1:5000", real: "fe80::1%eth0", want: "10.9.0.1"},
+			{name: "missing forwarding headers", remote: "10.9.0.1:5000", want: "10.9.0.1"},
+		} {
+			t.Run(route.path+"/"+route.model+"/"+test.name, func(t *testing.T) {
+				s.config.TrustedProxies = proxies
+				if test.disableTrust {
+					s.config.TrustedProxies = nil
+				}
+				r := httptest.NewRequest("POST", route.path, strings.NewReader(`{"model":"`+route.model+`"}`))
+				r.RemoteAddr = test.remote
+				r.Header.Set("Authorization", "Bearer "+a.GatewayKey)
+				r.Header.Set("X-Real-IP", test.real)
+				for _, value := range test.forwarded {
+					r.Header.Add("X-Forwarded-For", value)
+				}
+				r.Header.Set("CF-Connecting-IP", "198.51.100.99")
+				r.Header.Set("x-bf-eh-x-real-ip", "198.51.100.99")
+				r.Header.Set("x-bf-eh-x-forwarded-for", "198.51.100.99")
+				r.Header.Set("x-bf-eh-cf-connecting-ip", "198.51.100.99")
+				w := httptest.NewRecorder()
+				s.routes().ServeHTTP(w, r)
+				if w.Code != 200 || forwardedPath != route.upstream {
+					t.Fatalf("request failed or used the wrong protocol: %d %s", w.Code, w.Body.String())
+				}
+				for _, name := range []string{"x-bf-eh-x-real-ip", "x-bf-eh-x-forwarded-for"} {
+					if !slices.Equal(forwarded.Values(name), []string{test.want}) {
+						t.Fatalf("%s = %v, want only %s", name, forwarded.Values(name), test.want)
+					}
+				}
+				if forwarded.Get("CF-Connecting-IP") != "" || forwarded.Get("x-bf-eh-cf-connecting-ip") != "" {
+					t.Fatal("an unverified client IP header reached Bifrost")
+				}
+			})
+		}
+	}
+}
 
 func TestResponsesProxyRoutesSelectedModelsAndPreservesSearchResults(t *testing.T) {
 	response := `{"id":"resp-search","object":"response","status":"completed","output":[{"type":"web_search_call","status":"completed"},{"type":"message","content":[{"type":"output_text","text":"Search answer","annotations":[{"type":"url_citation","url":"https://example.com/source","title":"Source"}]}]}],"usage":{"input_tokens":120,"output_tokens":40,"input_tokens_details":{"cached_tokens":80}}}`
@@ -177,7 +267,7 @@ func TestOpenAIProxyPreservesCacheIdentityAcrossTurnsAndIsolatesUsers(t *testing
 	if got := request(b, "test-model", first, "", headers); got == key {
 		t.Fatal("different users shared a generated cache identity")
 	}
-	if got := request(a, "other-openai-model", first, "", headers); got == key {
+	if got := request(a, "other-openai-model", first, "", headers); got == "" || got == key {
 		t.Fatal("different models shared a generated cache identity")
 	}
 	if got := request(a, "test-model", `[{"role":"user","content":"different conversation"}]`, "", headers); got == key {
@@ -409,7 +499,7 @@ func TestCursorResponsesDiscoveryPreservesToolHistoryAndStreamState(t *testing.T
 		if body.Model != "sub-openai/test-model" && body.Model != "sub-grok/grok-model" && body.Model != "sub-gemini/gemini-model" {
 			t.Error("model used the wrong source provider")
 		}
-		if body.Model == "sub-openai/test-model" && body.Reasoning.Effort != "xhigh" {
+		if body.Model == "sub-openai/test-model" && body.Reasoning.Effort != "high" {
 			t.Error("native Responses lost the default OpenAI effort")
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -417,6 +507,7 @@ func TestCursorResponsesDiscoveryPreservesToolHistoryAndStreamState(t *testing.T
 	})
 	a := activeAccount()
 	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model"}}, {Provider: "sub-grok", Models: []string{"grok-model"}}, {Provider: "sub-gemini", Models: []string{"gemini-model"}}}
+	a.EffortOverrides = map[string]ModelEffortOverride{"test-model": {Effort: "high"}}
 	setModelsDev(t, s, testModelData)
 	if err := s.store.save(&a); err != nil {
 		t.Fatal(err)
@@ -644,12 +735,15 @@ func TestProxyDefaultsOnlyUnspecifiedOpenAIEffortAndPreservesSettings(t *testing
 		forwarded = append(forwarded, body)
 		jsonResponse(w, map[string]string{"id": "completion"})
 	})
-	setModelsDev(t, s, testModelData)
+	setModelsDev(t, s, `{
+		"openai":{"models":{"test-model":{"reasoning_options":[{"type":"effort","values":["low","xhigh","future-effort"]}]}}},
+		"xai":{"models":{"grok-model":{"reasoning_options":[{"type":"effort","values":["medium","xhigh"]}]}}},
+		"google":{"models":{"gemini-model":{"reasoning_options":[{"type":"effort","values":["minimal","high"]}]}}}
+	}`)
 	a := activeAccount()
 	a.Bindings = []Binding{
-		{Provider: "sub-openai", Models: []string{"test-model", "missing-model"}},
+		{Provider: "sub-openai", Models: []string{"test-model", "missing-model", "grok-model", "gpt-unlisted"}},
 		{Provider: "sub-claude", Models: []string{"budget-model"}},
-		{Provider: "sub-grok", Models: []string{"grok-model"}},
 		{Provider: "sub-gemini", Models: []string{"gemini-model"}},
 	}
 	if err := s.store.save(&a); err != nil {
@@ -662,12 +756,13 @@ func TestProxyDefaultsOnlyUnspecifiedOpenAIEffortAndPreservesSettings(t *testing
 		{"empty response effort", `{"model":"test-model","reasoning":{"effort":""}}`, "sub-openai/test-model", "xhigh", ""},
 		{"null response effort", `{"model":"test-model","reasoning":{"effort":null}}`, "sub-openai/test-model", "xhigh", ""},
 		{"preserve summary", `{"model":"test-model","reasoning":{"summary":"auto"}}`, "sub-openai/test-model", "xhigh", "auto"},
-		{"missing metadata", `{"model":"missing-model"}`, "sub-openai/missing-model", "xhigh", ""},
+		{"missing metadata", `{"model":"missing-model"}`, "sub-openai/missing-model", "", ""},
+		{"GPT fallback without metadata", `{"model":"gpt-unlisted"}`, "sub-openai/gpt-unlisted", "", ""},
 		{"explicit response effort", `{"model":"test-model","reasoning":{"effort":"future-effort"}}`, "sub-openai/test-model", "future-effort", ""},
 		{"explicit effort without metadata", `{"model":"missing-model","reasoning":{"effort":"medium"}}`, "sub-openai/missing-model", "medium", ""},
 		{"Claude default", `{"model":"budget-model"}`, "sub-claude/budget-model", "", ""},
-		{"Grok default", `{"model":"grok-model"}`, "sub-grok/grok-model", "", ""},
-		{"Grok explicit effort", `{"model":"grok-model","reasoning":{"effort":"xhigh"}}`, "sub-grok/grok-model", "xhigh", ""},
+		{"Grok compatible default", `{"model":"grok-model"}`, "sub-openai/grok-model", "", ""},
+		{"Grok compatible explicit effort", `{"model":"grok-model","reasoning":{"effort":"xhigh"}}`, "sub-openai/grok-model", "xhigh", ""},
 		{"Gemini default", `{"model":"gemini-model"}`, "sub-gemini/gemini-model", "", ""},
 		{"Gemini explicit effort", `{"model":"gemini-model","reasoning":{"effort":"minimal"}}`, "sub-gemini/gemini-model", "minimal", ""},
 	}

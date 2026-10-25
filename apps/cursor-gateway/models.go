@@ -30,8 +30,11 @@ type SourceKey struct {
 type Model struct {
 	ID                    string   `json:"id"`
 	Provider              string   `json:"provider"`
+	IsOpenAI              bool     `json:"is_openai"`
 	Efforts               []string `json:"efforts"`
 	EffortSource          string   `json:"effort_source"`
+	InjectedEffort        string   `json:"injected_effort"`
+	EffortOverride        *string  `json:"effort_override,omitempty"`
 	ContextWindow         int      `json:"context_window"`
 	ContextWindowOverride int      `json:"context_window_override,omitempty"`
 	MaxOutputTokens       int      `json:"max_output_tokens"`
@@ -60,6 +63,7 @@ type Account struct {
 	SourceKeys        []KeySummary                    `json:"source_keys"`
 	SyncedAt          time.Time                       `json:"synced_at"`
 	ContextOverrides  map[string]ModelContextOverride `json:"context_overrides,omitempty"`
+	EffortOverrides   map[string]ModelEffortOverride  `json:"effort_overrides,omitempty"`
 }
 
 type ModelContextOverride struct {
@@ -67,8 +71,13 @@ type ModelContextOverride struct {
 	MissingSince  time.Time `json:"missing_since,omitempty"`
 }
 
-func reconcileContextOverrides(a *Account, now time.Time) bool {
-	if len(a.ContextOverrides) == 0 {
+type ModelEffortOverride struct {
+	Effort       string    `json:"effort"`
+	MissingSince time.Time `json:"missing_since,omitempty"`
+}
+
+func reconcileModelOverrides(a *Account, now time.Time) bool {
+	if len(a.ContextOverrides) == 0 && len(a.EffortOverrides) == 0 {
 		return false
 	}
 	available := map[string]bool{}
@@ -92,6 +101,22 @@ func reconcileContextOverrides(a *Account, now time.Time) bool {
 			continue
 		}
 		a.ContextOverrides[id] = setting
+		changed = true
+	}
+	for id, setting := range a.EffortOverrides {
+		if !setting.MissingSince.IsZero() && !now.Before(setting.MissingSince.Add(14*24*time.Hour)) {
+			delete(a.EffortOverrides, id)
+			changed = true
+			continue
+		}
+		if available[id] && !setting.MissingSince.IsZero() {
+			setting.MissingSince = time.Time{}
+		} else if !available[id] && setting.MissingSince.IsZero() {
+			setting.MissingSince = now
+		} else {
+			continue
+		}
+		a.EffortOverrides[id] = setting
 		changed = true
 	}
 	return changed

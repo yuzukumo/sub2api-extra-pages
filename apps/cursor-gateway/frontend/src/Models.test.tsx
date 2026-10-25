@@ -12,6 +12,10 @@ import { Models } from "./Models";
 import type { Account } from "./api";
 
 beforeEach(() => {
+  Object.defineProperty(Element.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn(),
+  });
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -54,8 +58,10 @@ test("model context edits save to the account and can restore the default", asyn
       {
         id: "test-model",
         provider: "sub-openai",
+        is_openai: true,
         efforts: ["low", "high"],
         effort_source: "models.dev",
+        injected_effort: "",
         context_window: 128000,
       },
     ],
@@ -110,4 +116,103 @@ test("model context edits save to the account and can restore the default", asyn
     model: "test-model",
     context_window: null,
   });
+});
+
+test("effort options come from model metadata and incompatible models stay disabled", async () => {
+  const account: Account = {
+    user: {
+      id: 7,
+      email: "user@example.com",
+      username: "user",
+      role: "user",
+      balance: 0,
+    },
+    key: "gateway-key",
+    base_url: "https://gateway.example/v1",
+    bindings: [],
+    source_keys: [],
+    selected_source_ids: [],
+    synced_at: "",
+    models: [
+      {
+        id: "openai-model",
+        provider: "sub-openai",
+        is_openai: true,
+        efforts: ["low", "xhigh", "future-effort"],
+        effort_source: "models.dev",
+        injected_effort: "xhigh",
+        context_window: 128000,
+      },
+      {
+        id: "compatible-model",
+        provider: "sub-openai",
+        is_openai: false,
+        efforts: ["high"],
+        effort_source: "models.dev",
+        injected_effort: "",
+        context_window: 128000,
+      },
+      {
+        id: "image-model",
+        provider: "sub-openai",
+        is_openai: true,
+        efforts: [],
+        effort_source: "models.dev",
+        injected_effort: "",
+        context_window: 0,
+      },
+    ],
+  };
+  const changed = (value: string | null): Account => ({
+    ...account,
+    models: account.models.map((model) =>
+      model.id === "openai-model"
+        ? {
+            ...model,
+            injected_effort: value ?? "xhigh",
+            effort_override: value ?? undefined,
+          }
+        : model,
+    ),
+  });
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => changed("future-effort") })
+    .mockResolvedValueOnce({ ok: true, json: async () => changed("") })
+    .mockResolvedValueOnce({ ok: true, json: async () => account });
+  vi.stubGlobal("fetch", fetch);
+  const client = new QueryClient();
+  const view = (value: Account) => (
+    <QueryClientProvider client={client}>
+      <MantineProvider env="test">
+        <Models account={value} />
+      </MantineProvider>
+    </QueryClientProvider>
+  );
+  const { rerender } = render(view(account));
+  for (const model of ["compatible-model", "image-model"]) {
+    const disabled = screen.getByRole("combobox", { name: `${model} 注入等级` }) as HTMLInputElement;
+    expect(disabled.disabled).toBe(true);
+    expect(disabled.value).toBe("");
+    fireEvent.click(disabled);
+    expect(screen.queryByRole("option")).toBeNull();
+  }
+
+  for (const [index, label, value] of [
+    [0, "future-effort", "future-effort"],
+    [1, "不注入", ""],
+    [2, "默认（xhigh）", null],
+  ] as const) {
+    fireEvent.click(screen.getByRole("combobox", { name: "openai-model 注入等级" }));
+    expect(screen.queryByRole("option", { name: "high" })).toBeNull();
+    fireEvent.click(await screen.findByRole("option", { name: label }));
+    await waitFor(() => expect(client.getQueryData(["account"])).toEqual(changed(value)));
+    expect(fetch.mock.calls[index][0]).toBe("/api/models/effort");
+    expect(fetch.mock.calls[index][1].method).toBe("PUT");
+    expect(JSON.parse(fetch.mock.calls[index][1].body)).toEqual({
+      model: "openai-model",
+      effort: value,
+    });
+    rerender(view(changed(value)));
+  }
 });

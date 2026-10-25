@@ -39,6 +39,113 @@ func activeAccount() Account {
 	return Account{User: User{ID: 7, Role: "user", Status: "active"}, AccessToken: "sub-token", TokenExpires: time.Now().Add(time.Hour), VirtualKey: "internal-bifrost-key", GatewayKey: "gateway-key", SyncedAt: time.Now(), SelectedSourceIDs: []int64{}, Bindings: []Binding{}}
 }
 
+func TestModelEffortSettingsAreOwnedDurableAndAppliedOnlyToMissingEffort(t *testing.T) {
+	a := activeAccount()
+	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model", "compatible-model", "image-model", "plain-model"}}}
+	a.ContextOverrides = map[string]ModelContextOverride{"test-model": {ContextWindow: 64000}}
+	var forwardedEffort string
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(w, map[string]any{"code": 0, "data": a.User})
+	}, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Reasoning struct {
+				Effort string `json:"effort"`
+			} `json:"reasoning"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		forwardedEffort = body.Reasoning.Effort
+		respond(w, 200, map[string]string{"status": "completed"})
+	})
+	setModelsDev(t, s, `{
+		"openai":{"models":{
+			"test-model":{"reasoning_options":[{"type":"effort","values":["none","low","xhigh","future-effort"]}]},
+			"image-model":{"type":"image"},
+			"plain-model":{"reasoning":false}
+		}},
+		"xai":{"models":{"compatible-model":{"reasoning_options":[{"type":"effort","values":["low"]}]}}}
+	}`)
+	b := a
+	b.User.ID = 8
+	b.GatewayKey = "other-gateway-key"
+	for _, account := range []*Account{&a, &b} {
+		if err := s.store.save(account); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unauthorized := httptest.NewRecorder()
+	r := httptest.NewRequest("PUT", "/api/models/effort", strings.NewReader(`{"model":"test-model","effort":"low"}`))
+	r.Header.Set("Content-Type", "application/json")
+	s.routes().ServeHTTP(unauthorized, r)
+	if unauthorized.Code != 401 {
+		t.Fatal("effort update did not require authentication")
+	}
+	for _, test := range []struct {
+		body string
+		code int
+	}{
+		{`{"model":"test-model","effort":"unsupported"}`, 400},
+		{`{"model":"test-model","effort":42}`, 400},
+		{`{"model":"test-model","effort":"low","user_id":8}`, 400},
+		{`{"model":"unowned-model","effort":"low"}`, 403},
+		{`{"model":"compatible-model","effort":"low"}`, 400},
+		{`{"model":"image-model","effort":"low"}`, 400},
+		{`{"model":"image-model","effort":""}`, 400},
+		{`{"model":"image-model","effort":null}`, 400},
+		{`{"model":"plain-model","effort":""}`, 400},
+		{`{"model":"plain-model","effort":null}`, 400},
+	} {
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, sessionRequest(s, "PUT", "/api/models/effort", test.body))
+		if w.Code != test.code {
+			t.Fatalf("invalid effort update returned %d: %s", w.Code, w.Body.String())
+		}
+	}
+	infer := func(key, fields, want string) {
+		t.Helper()
+		r := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(`{"model":"test-model"`+fields+`}`))
+		r.Header.Set("Authorization", "Bearer "+key)
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		if w.Code != 200 || forwardedEffort != want {
+			t.Fatalf("incorrect injected effort %q, expected %q, response %s", forwardedEffort, want, w.Body.String())
+		}
+	}
+	for _, test := range []struct {
+		value string
+		want  string
+	}{{`"future-effort"`, "future-effort"}, {`"none"`, "none"}, {`""`, ""}, {`null`, "xhigh"}} {
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, sessionRequest(s, "PUT", "/api/models/effort", `{"model":"test-model","effort":`+test.value+`}`))
+		if w.Code != 200 {
+			t.Fatalf("save failed: %s", w.Body.String())
+		}
+		var result struct {
+			Models []Model `json:"models"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		for _, model := range result.Models {
+			if model.ID == "test-model" && (model.InjectedEffort != test.want || model.ContextWindow != 64000) {
+				t.Fatal("account response lost effort or independent context settings")
+			}
+		}
+		reopened, err := openStore(s.store.dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.store = reopened
+		infer(a.GatewayKey, "", test.want)
+		infer(b.GatewayKey, "", "xhigh")
+		infer(a.GatewayKey, `,"reasoning":{"effort":"low"}`, "low")
+	}
+	if len(s.store.snapshot().Accounts[a.User.ID].EffortOverrides) != 0 {
+		t.Fatal("restoring the default retained an override")
+	}
+}
+
 func TestModelContextUpdatesAreOwnedDurableAndVisibleToCursor(t *testing.T) {
 	a := activeAccount()
 	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model"}}}

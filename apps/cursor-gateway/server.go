@@ -52,6 +52,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/sync", s.synchronize)
 	mux.HandleFunc("POST /api/key/rotate", s.rotate)
 	mux.HandleFunc("PUT /api/models/context", s.updateModelContext)
+	mux.HandleFunc("PUT /api/models/effort", s.updateModelEffort)
 	mux.HandleFunc("GET /v1/models", s.listModels)
 	mux.HandleFunc("GET /models", s.listModels)
 	mux.HandleFunc("POST /v1/responses", s.proxyResponses)

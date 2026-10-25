@@ -48,7 +48,7 @@ func TestStoreEncryptsCredentialsAndSurvivesRestart(t *testing.T) {
 	}
 }
 
-func TestContextOverridesPersistPerUserAndExpireOnlyAfterContinuousAbsence(t *testing.T) {
+func TestModelOverridesPersistPerUserAndExpireOnlyAfterContinuousAbsence(t *testing.T) {
 	dir := t.TempDir()
 	store, err := openStore(dir)
 	if err != nil {
@@ -58,7 +58,9 @@ func TestContextOverridesPersistPerUserAndExpireOnlyAfterContinuousAbsence(t *te
 	a := Account{User: User{ID: 7}, Bindings: []Binding{{Models: []string{"shared-model", "present-model"}}}, ContextOverrides: map[string]ModelContextOverride{
 		"shared-model": {ContextWindow: 64000}, "present-model": {ContextWindow: 96000},
 	}}
+	a.EffortOverrides = map[string]ModelEffortOverride{"shared-model": {Effort: "low"}, "present-model": {Effort: ""}}
 	b := Account{User: User{ID: 8}, Bindings: []Binding{{Models: []string{"shared-model"}}}, ContextOverrides: map[string]ModelContextOverride{"shared-model": {ContextWindow: 128000}}}
+	b.EffortOverrides = map[string]ModelEffortOverride{"shared-model": {Effort: "high"}}
 	for _, account := range []*Account{&a, &b} {
 		if err := store.saveAt(account, now); err != nil {
 			t.Fatal(err)
@@ -76,12 +78,18 @@ func TestContextOverridesPersistPerUserAndExpireOnlyAfterContinuousAbsence(t *te
 	if a.ContextOverrides["shared-model"].ContextWindow != 64000 || !a.ContextOverrides["shared-model"].MissingSince.Equal(now) || reopened.snapshot().Accounts[8].ContextOverrides["shared-model"].ContextWindow != 128000 {
 		t.Fatal("settings were lost on restart or mixed between users")
 	}
+	if a.EffortOverrides["shared-model"].Effort != "low" || !a.EffortOverrides["shared-model"].MissingSince.Equal(now) || reopened.snapshot().Accounts[8].EffortOverrides["shared-model"].Effort != "high" {
+		t.Fatal("effort settings were lost on restart or mixed between users")
+	}
 	a.Bindings = []Binding{{Models: []string{"shared-model", "present-model"}}}
 	if err := reopened.saveAt(&a, now.Add(13*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if a.ContextOverrides["shared-model"].ContextWindow != 64000 || !a.ContextOverrides["shared-model"].MissingSince.IsZero() {
 		t.Fatal("returning model did not recover its setting")
+	}
+	if a.EffortOverrides["shared-model"].Effort != "low" || !a.EffortOverrides["shared-model"].MissingSince.IsZero() {
+		t.Fatal("returning model did not recover its effort setting")
 	}
 	a.Bindings = []Binding{{Models: []string{"present-model"}}}
 	missing := now.Add(14 * 24 * time.Hour)
@@ -94,12 +102,21 @@ func TestContextOverridesPersistPerUserAndExpireOnlyAfterContinuousAbsence(t *te
 	if reopened.snapshot().Accounts[7].ContextOverrides["shared-model"].ContextWindow != 64000 {
 		t.Fatal("setting expired before 14 days of continuous absence")
 	}
+	if reopened.snapshot().Accounts[7].EffortOverrides["shared-model"].Effort != "low" {
+		t.Fatal("effort setting expired before 14 days of continuous absence")
+	}
 	if err := reopened.saveAt(nil, missing.Add(14*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	state := reopened.snapshot()
 	if _, ok := state.Accounts[7].ContextOverrides["shared-model"]; ok {
 		t.Fatal("absent model setting was retained after 14 days")
+	}
+	if _, ok := state.Accounts[7].EffortOverrides["shared-model"]; ok {
+		t.Fatal("absent model effort setting was retained after 14 days")
+	}
+	if _, ok := state.Accounts[7].EffortOverrides["present-model"]; !ok || state.Accounts[8].EffortOverrides["shared-model"].Effort != "high" {
+		t.Fatal("cleanup removed available effort settings or disabled injection")
 	}
 	if state.Accounts[7].ContextOverrides["present-model"].ContextWindow != 96000 || state.Accounts[8].ContextOverrides["shared-model"].ContextWindow != 128000 {
 		t.Fatal("cleanup removed available model settings")
@@ -114,6 +131,7 @@ func TestContextOverridesPersistPerUserAndExpireOnlyAfterContinuousAbsence(t *te
 	}
 	a.Bindings = []Binding{{Models: []string{"present-model"}}}
 	a.ContextOverrides["shared-model"] = ModelContextOverride{ContextWindow: 64000}
+	a.EffortOverrides["shared-model"] = ModelEffortOverride{Effort: "low"}
 	if err := reopened.saveAt(&a, now.Add(-15*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +141,9 @@ func TestContextOverridesPersistPerUserAndExpireOnlyAfterContinuousAbsence(t *te
 	}
 	if _, ok := restarted.snapshot().Accounts[7].ContextOverrides["shared-model"]; ok {
 		t.Fatal("restart retained a setting that expired while the server was offline")
+	}
+	if _, ok := restarted.snapshot().Accounts[7].EffortOverrides["shared-model"]; ok {
+		t.Fatal("restart retained an effort setting that expired while the server was offline")
 	}
 }
 

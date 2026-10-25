@@ -11,8 +11,11 @@ export type Provider = "sub-openai" | "sub-claude" | "sub-grok" | "sub-gemini";
 export interface Model {
   id: string;
   provider: Provider;
+  is_openai: boolean;
   efforts: string[];
   effort_source: "models.dev" | "default";
+  injected_effort: string;
+  effort_override?: string;
   context_window: number;
   context_window_override?: number;
 }

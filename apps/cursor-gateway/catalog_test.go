@@ -16,6 +16,7 @@ import (
 const testModelData = `{
   "openai":{"models":{
     "test-model":{"reasoning_options":[{"type":"effort","values":["low","high","future-effort"]}],"modalities":{"input":["text","image"],"output":["text"]},"limit":{"context":1200,"output":300}},
+    "other-openai-model":{},
     "unowned-model":{"reasoning_options":[{"type":"effort","values":["none"]}]}
   }},
   "anthropic":{"models":{"budget-model":{"reasoning_options":[{"type":"budget_tokens","min":1024}],"limit":{"context":2400}}}},
@@ -57,7 +58,7 @@ func TestCatalogUsesProviderEffortEnumsAndDefaultLevelsWithoutExpandingPermissio
 		{ID: "google/gemini-model", Provider: "sub-gemini", Efforts: []string{"minimal", "high"}, EffortSource: "models.dev", ContextWindow: 9600, MaxOutputTokens: 600, SupportsVision: true},
 		{ID: "grok-model", Provider: "sub-grok", Efforts: []string{"medium", "xhigh"}, EffortSource: "models.dev", ContextWindow: 4800},
 		{ID: "missing-model", Provider: "sub-openai", Efforts: []string{"low", "medium", "high"}, EffortSource: "default"},
-		{ID: "openai/test-model", Provider: "sub-openai", Efforts: []string{"low", "high", "future-effort"}, EffortSource: "models.dev", ContextWindow: 1200, MaxOutputTokens: 300, SupportsVision: true},
+		{ID: "openai/test-model", Provider: "sub-openai", IsOpenAI: true, Efforts: []string{"low", "high", "future-effort"}, EffortSource: "models.dev", ContextWindow: 1200, MaxOutputTokens: 300, SupportsVision: true},
 	}
 	got := c.models(context.Background(), a, false)
 	if !reflect.DeepEqual(got, want) {
@@ -66,6 +67,64 @@ func TestCatalogUsesProviderEffortEnumsAndDefaultLevelsWithoutExpandingPermissio
 	got[len(got)-1].Efforts[0] = "mutated"
 	if !reflect.DeepEqual(c.models(context.Background(), a, false), want) || calls.Load() != 1 {
 		t.Fatal("catalog was mutated by a caller or downloaded for every request")
+	}
+}
+
+func TestCatalogIdentifiesModelAuthorsAcrossCompatibleProvidersAndAppliesOwnedEffort(t *testing.T) {
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) })
+	setModelsDev(t, s, `{
+		"openai":{"models":{
+			"reasoning-model":{"reasoning":true,"reasoning_options":[{"type":"effort","values":["low","xhigh","future-effort"]}]},
+			"image-model":{"type":"image","reasoning":true,"reasoning_options":[{"type":"effort","values":["xhigh"]}]},
+			"plain-model":{"reasoning":false}
+		}},
+		"xai":{"models":{"grok-compatible":{"canonical_model_id":"xai/grok-compatible","reasoning_options":[{"type":"effort","values":["high"]}],"limit":{"context":4800}}}},
+		"proxy":{"models":{"hosted-alias":{"canonical_model_id":"openai/reasoning-model","reasoning_options":[{"type":"effort","values":["low","xhigh"]}]},"gpt-other-author":{"canonical_model_id":"another-lab/gpt-other-author"}}}
+	}`)
+	a := Account{Bindings: []Binding{{Provider: "sub-openai", Models: []string{"reasoning-model", "image-model", "plain-model", "grok-compatible", "hosted-alias", "gpt-unlisted", "gpt-other-author", "unknown-compatible"}}}}
+	a.EffortOverrides = map[string]ModelEffortOverride{
+		"reasoning-model": {Effort: "future-effort"},
+		"image-model":     {Effort: "xhigh"},
+		"grok-compatible": {Effort: "high"},
+	}
+	models := s.catalog.models(context.Background(), a, false)
+	want := map[string]struct {
+		openAI bool
+		effort string
+	}{
+		"reasoning-model": {true, "future-effort"}, "plain-model": {true, ""}, "image-model": {true, ""},
+		"grok-compatible": {false, ""}, "hosted-alias": {true, "xhigh"},
+		"gpt-unlisted": {true, ""}, "gpt-other-author": {false, ""}, "unknown-compatible": {false, ""},
+	}
+	for _, model := range models {
+		if model.IsOpenAI != want[model.ID].openAI || model.InjectedEffort != want[model.ID].effort || model.Provider != "sub-openai" {
+			t.Fatalf("model identity or effort incorrectly used the API format: %#v", model)
+		}
+		if (model.ID == "plain-model" || model.ID == "image-model") && (len(model.Efforts) != 0 || model.EffortOverride != nil) {
+			t.Fatal("an image or non-reasoning OpenAI model received effort options or an override")
+		}
+		if model.ID == "grok-compatible" && (model.ContextWindow != 4800 || !reflect.DeepEqual(model.Efforts, []string{"high"})) {
+			t.Fatal("compatible API routing selected another author's model metadata")
+		}
+	}
+	if len(models) != len(want) {
+		t.Fatal("author detection changed the available model list")
+	}
+	for _, setting := range []ModelEffortOverride{{Effort: ""}, {Effort: "removed-level"}, {Effort: "low", MissingSince: time.Now().Add(-15 * 24 * time.Hour)}} {
+		a.EffortOverrides["reasoning-model"] = setting
+		models := s.catalog.models(context.Background(), a, false)
+		for _, model := range models {
+			if model.ID != "reasoning-model" {
+				continue
+			}
+			if setting.Effort == "" {
+				if model.InjectedEffort != "" || model.EffortOverride == nil || *model.EffortOverride != "" {
+					t.Fatal("disabling injection was treated as restoring the default")
+				}
+			} else if model.InjectedEffort != "xhigh" || model.EffortOverride != nil {
+				t.Fatal("an unsupported or expired override was injected")
+			}
+		}
 	}
 }
 

@@ -6,6 +6,7 @@ import {
   Paper,
   Modal,
   NumberInput,
+  Select,
   Stack,
   Table,
   Text,
@@ -45,6 +46,18 @@ export function Models({ account }: { account: Account }) {
     },
     onError: (error) => notifications.show({ message: error.message, color: "red" }),
   });
+  const effort = useMutation({
+    mutationFn: ({ model, value }: { model: string; value: string | null }) =>
+      api<Account>("/models/effort", "PUT", { model, effort: value }),
+    onSuccess: (data) => {
+      client.setQueryData(["account"], data);
+      notifications.show({
+        message: t("注入等级已保存", "Effort setting saved"),
+        color: "teal",
+      });
+    },
+    onError: (error) => notifications.show({ message: error.message, color: "red" }),
+  });
   const models = account.models.filter((model) =>
     `${model.id} ${providerLabel(model.provider)}`
       .toLowerCase()
@@ -76,13 +89,14 @@ export function Models({ account }: { account: Account }) {
             leftSection={<IconSearch size={16} />}
           />
         </Group>
-        <Table.ScrollContainer minWidth={600}>
+        <Table.ScrollContainer minWidth={800}>
           <Table horizontalSpacing="lg" verticalSpacing="md" highlightOnHover>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>{t("模型", "Model")}</Table.Th>
                 <Table.Th>{t("服务", "Provider")}</Table.Th>
                 <Table.Th>{t("思考等级", "Reasoning levels")}</Table.Th>
+                <Table.Th>{t("注入等级", "Injected effort")}</Table.Th>
                 <Table.Th>{t("上下文", "Context window")}</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -144,6 +158,65 @@ export function Models({ account }: { account: Account }) {
                         ? "models.dev"
                         : t("默认三级", "Default levels")}
                     </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Select
+                      aria-label={t(
+                        `${model.id} 注入等级`,
+                        `Injected effort for ${model.id}`,
+                      )}
+                      size="xs"
+                      w={180}
+                      placeholder="-"
+                      allowDeselect={false}
+                      disabled={
+                        !model.is_openai ||
+                        model.efforts.length === 0 ||
+                        effort.isPending
+                      }
+                      value={
+                        !model.is_openai || model.efforts.length === 0
+                          ? null
+                          : model.effort_override === undefined
+                            ? "__default__"
+                            : model.effort_override === ""
+                              ? "__off__"
+                              : model.effort_override
+                      }
+                      data={
+                        model.is_openai && model.efforts.length > 0
+                          ? [
+                              {
+                                value: "__default__",
+                                label: t(
+                                  `默认（${model.efforts.includes("xhigh") ? "xhigh" : "不注入"}）`,
+                                  `Default (${model.efforts.includes("xhigh") ? "xhigh" : "No injection"})`,
+                                ),
+                              },
+                              {
+                                value: "__off__",
+                                label: t("不注入", "No injection"),
+                              },
+                              ...model.efforts.map((value) => ({
+                                value,
+                                label: value,
+                              })),
+                            ]
+                          : []
+                      }
+                      onChange={(value) => {
+                        if (value !== null)
+                          effort.mutate({
+                            model: model.id,
+                            value:
+                              value === "__default__"
+                                ? null
+                                : value === "__off__"
+                                  ? ""
+                                  : value,
+                          });
+                      }}
+                    />
                   </Table.Td>
                   <Table.Td>
                     <Group gap="xs" wrap="nowrap">

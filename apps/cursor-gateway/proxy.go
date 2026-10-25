@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -150,8 +152,8 @@ func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstream
 		fail(w, problem(400, "invalid_effort", "This reasoning level is not supported by the model"))
 		return
 	}
-	if effort == "" && m.Provider == "sub-openai" && settingsField == "reasoning" {
-		effort = "xhigh"
+	if effort == "" && m.IsOpenAI && settingsField == "reasoning" {
+		effort = m.InjectedEffort
 	}
 	if effort != "" {
 		settings["effort"], _ = json.Marshal(effort)
@@ -159,7 +161,7 @@ func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstream
 	if len(settings) > 0 {
 		body[settingsField], _ = json.Marshal(settings)
 	}
-	if m.Provider == "sub-openai" && upstreamPath == "/v1/responses" {
+	if m.IsOpenAI && upstreamPath == "/v1/responses" {
 		delete(body, "extra_params")
 		if err := prepareOpenAICache(body, r.Header, a.User.ID, model); err != nil {
 			fail(w, err)
@@ -186,7 +188,11 @@ func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstream
 		req.Header.Set("User-Agent", userAgent)
 		req.Header.Set("x-bf-eh-user-agent", userAgent)
 	}
-	if m.Provider == "sub-openai" && upstreamPath == "/v1/responses" {
+	if ip := s.clientIP(r); ip != "" {
+		req.Header.Set("x-bf-eh-x-real-ip", ip)
+		req.Header.Set("x-bf-eh-x-forwarded-for", ip)
+	}
+	if m.IsOpenAI && upstreamPath == "/v1/responses" {
 		req.Header.Set("x-bf-passthrough-extra-params", "true")
 		for _, name := range []string{"session-id", "session_id", "conversation_id", "x-session-affinity", "x-session-id", "x-opencode-session", "x-conversation-id"} {
 			if value := r.Header.Get(name); value != "" {
@@ -228,4 +234,40 @@ func (s *Server) proxyToBifrost(w http.ResponseWriter, r *http.Request, upstream
 			return
 		}
 	}
+}
+
+func (s *Server) trustsProxy(addr netip.Addr) bool {
+	return slices.ContainsFunc(s.config.TrustedProxies, func(prefix netip.Prefix) bool { return prefix.Contains(addr) })
+}
+
+func (s *Server) clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	peer, err := netip.ParseAddr(host)
+	if err != nil {
+		return ""
+	}
+	peer = peer.Unmap()
+	if !s.trustsProxy(peer) {
+		return peer.String()
+	}
+	if values := r.Header.Values("X-Forwarded-For"); len(values) > 0 {
+		chain := strings.Split(strings.Join(values, ","), ",")
+		for i := len(chain) - 1; i >= 0; i-- {
+			addr, err := netip.ParseAddr(strings.TrimSpace(chain[i]))
+			if err != nil || addr.Zone() != "" {
+				return peer.String()
+			}
+			addr = addr.Unmap()
+			if i == 0 || !s.trustsProxy(addr) {
+				return addr.String()
+			}
+		}
+	}
+	if addr, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP"))); err == nil && addr.Zone() == "" {
+		return addr.Unmap().String()
+	}
+	return peer.String()
 }

@@ -42,6 +42,7 @@
 | 配置                            | 默认值                  | 作用                                                                                   |
 | ------------------------------- | ----------------------- | -------------------------------------------------------------------------------------- |
 | `SUB2API_URL`                 | `http://sub2api:8080` | 现有 Sub2API 地址                                                                      |
+| `TRUSTED_PROXIES`             | 空 | 直接连接网关的可信反代 IP 或 CIDR，多个用逗号分隔。留空时使用连接来源 IP |
 | `LIMIT_CONTEXT_TO_FIRST_TIER` | `"true"`              | 按 models.dev 的第一段计费限制 Cursor 读取的上下文窗口，改为`"false"` 则使用完整窗口 |
 
 在「可用模型」中，每个用户可以自定义模型上下文或恢复默认。自定义值优先于上面的配置，重启或暂时取消 key 后仍会保留。成功同步确认模型消失后，连续 14 天未重新出现便清理记录。上下文设置只影响 Cursor 读取的模型信息，不会截断请求，也不会改变计费。
@@ -51,7 +52,8 @@
 | Key 与模型 | 支持 OpenAI、Claude、Grok、Gemini。一个 key 对应一种 API 格式，所选 key 之间模型名称不能重复 |
 | Base URL   | 使用标准`/v1`，也兼容不带 `/v1` 的地址                                                                                                      |
 | 协议       | OpenAI 和 Grok 使用原生 Responses，Claude 使用原生 Messages。Gemini 在 Cursor 中使用 Responses，由 Bifrost 转为上游 Gemini 原生格式 |
-| 思考等级   | 来自[models.dev](https://models.dev/)，缺失时使用 `low`、`medium`、`high`。OpenAI 请求未填写 effort 时使用 `xhigh`，显式等级会保留并校验 |
+| 思考等级   | 来自[models.dev](https://models.dev/)，缺失时使用 `low`、`medium`、`high`。客户端显式等级保留并校验 |
+| 注入等级   | 根据 models.dev 识别 OpenAI 模型，未收录时匹配 `gpt-` 前缀。在「可用模型」中选择等级或关闭注入，仅在客户端未传 effort 时生效，默认在支持时注入 `xhigh`。设置按用户保存，保留期限与上下文设置一致 |
 | 联网搜索   | Cursor 使用所选模型单独请求 Responses，Claude 和 Gemini 由 Bifrost 转换。实际搜索需要上游支持 |
 | 缓存       | OpenAI 使用 Responses，保留缓存 key 和会话信息，未提供缓存 key 时根据稳定的对话上下文生成。是否命中取决于模型、提示词和上游策略                                                                            |
 
@@ -59,6 +61,8 @@
 <summary>部署与兼容性说明</summary>
 
 Bifrost 使用官方镜像，在内网运行。无需 Sub2API 管理员 key，原始 key 和登录 token 留在服务端并加密存储。备份时一起保留两个具名卷。
+
+使用记录中的真实 IP 通过标准转发头传给 Sub2API。将反代连接网关时使用的地址填入 `TRUSTED_PROXIES`，并让反代覆盖 `X-Forwarded-For`，或追加经过验证的连接来源地址。Docker 部署中通常是宿主机网桥地址或反代容器地址，不是用户 IP。也支持仅由反代覆盖设置 `X-Real-IP`。推荐 Bifrost 内网直连 Sub2API；Sub2API 使用严格可信代理模式时，还需在其 `server.trusted_proxies` 中信任 Bifrost 的地址。公网中间代理如果覆盖转发头，仍会丢失原始 IP。
 
 取消全部 key 会停用模型访问，轮换聚合 key 后旧 key 失效。重启网关保留聚合 key，但网页登录需要重新登录。
 

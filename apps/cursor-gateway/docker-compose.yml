@@ -7,6 +7,7 @@ services:
       - "127.0.0.1:6001:3000"
     environment:
       SUB2API_URL: http://sub2api:8080
+      TRUSTED_PROXIES: ""
       LIMIT_CONTEXT_TO_FIRST_TIER: "true"
     volumes:
       - sub2apiextra-cursorgateway:/app/data

@@ -119,11 +119,12 @@ func (s *Store) saveState(account *Account, now time.Time, force bool) error {
 	if account != nil {
 		copy := *account
 		copy.ContextOverrides = maps.Clone(account.ContextOverrides)
+		copy.EffortOverrides = maps.Clone(account.EffortOverrides)
 		next.Accounts[account.User.ID] = copy
 	}
 	changed := account != nil || force
 	for id, a := range next.Accounts {
-		if reconcileContextOverrides(&a, now) {
+		if reconcileModelOverrides(&a, now) {
 			next.Accounts[id] = a
 			changed = true
 		}
@@ -162,6 +163,7 @@ func (s *Store) saveState(account *Account, now time.Time, force bool) error {
 	s.state = next
 	if account != nil {
 		account.ContextOverrides = maps.Clone(next.Accounts[account.User.ID].ContextOverrides)
+		account.EffortOverrides = maps.Clone(next.Accounts[account.User.ID].EffortOverrides)
 	}
 	return nil
 }

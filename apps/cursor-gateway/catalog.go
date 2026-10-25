@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,9 @@ import (
 const modelSyncInterval = 3 * time.Hour
 
 type modelSpec struct {
+	CanonicalModelID string `json:"canonical_model_id"`
+	Type             string `json:"type"`
+	Reasoning        *bool  `json:"reasoning"`
 	ReasoningOptions []struct {
 		Type   string   `json:"type"`
 		Values []string `json:"values"`
@@ -53,6 +57,27 @@ func (m modelSpec) contextWindow(limitToFirstTier bool) int {
 
 type modelsDevData map[string]struct {
 	Models map[string]modelSpec `json:"models"`
+}
+
+func (data modelsDevData) lookup(id string, providers []string) (modelSpec, string) {
+	if provider, name, ok := strings.Cut(id, "/"); ok {
+		if spec, found := data[provider].Models[name]; found {
+			return spec, spec.author(provider)
+		}
+	}
+	for _, provider := range providers {
+		if spec, ok := data[provider].Models[id]; ok {
+			return spec, spec.author(provider)
+		}
+	}
+	return modelSpec{}, ""
+}
+
+func (m modelSpec) author(provider string) string {
+	if author, _, ok := strings.Cut(m.CanonicalModelID, "/"); ok {
+		return author
+	}
+	return provider
 }
 
 type ModelCatalog struct {
@@ -162,23 +187,13 @@ func (c *ModelCatalog) models(ctx context.Context, a Account, limitToFirstTier b
 		return result
 	}
 	data := c.snapshot(ctx)
+	providers := append([]string{"openai", "anthropic", "xai", "google"}, slices.Sorted(maps.Keys(data))...)
 	for _, b := range a.Bindings {
-		provider := "openai"
-		switch b.Provider {
-		case "sub-claude":
-			provider = "anthropic"
-		case "sub-grok":
-			provider = "xai"
-		case "sub-gemini":
-			provider = "google"
-		}
 		for _, id := range b.Models {
-			spec := data[provider].Models[id]
-			if _, ok := data[provider].Models[id]; !ok {
-				spec = data[provider].Models[strings.TrimPrefix(id, provider+"/")]
-			}
+			spec, author := data.lookup(id, providers)
+			isOpenAI := author == "openai" || (author == "" && strings.HasPrefix(strings.TrimPrefix(id, "openai/"), "gpt-"))
 			m := Model{
-				ID: id, Provider: b.Provider, Efforts: []string{"low", "medium", "high"}, EffortSource: "default",
+				ID: id, Provider: b.Provider, IsOpenAI: isOpenAI, Efforts: []string{"low", "medium", "high"}, EffortSource: "default",
 				ContextWindow: spec.contextWindow(limitToFirstTier), MaxOutputTokens: spec.Limit.Output,
 				SupportsVision: slices.Contains(spec.Modalities.Input, "image"),
 			}
@@ -191,6 +206,19 @@ func (c *ModelCatalog) models(ctx context.Context, a Account, limitToFirstTier b
 					m.Efforts = slices.Clone(option.Values)
 					m.EffortSource = "models.dev"
 					break
+				}
+			}
+			if spec.Type == "image" || (m.IsOpenAI && spec.Reasoning != nil && !*spec.Reasoning) {
+				m.Efforts = []string{}
+				m.EffortSource = "models.dev"
+			}
+			if m.IsOpenAI && len(m.Efforts) > 0 {
+				if slices.Contains(m.Efforts, "xhigh") {
+					m.InjectedEffort = "xhigh"
+				}
+				if setting, ok := a.EffortOverrides[id]; ok && (setting.MissingSince.IsZero() || time.Now().Before(setting.MissingSince.Add(14*24*time.Hour))) && (setting.Effort == "" || slices.Contains(m.Efforts, setting.Effort)) {
+					m.InjectedEffort = setting.Effort
+					m.EffortOverride = &setting.Effort
 				}
 			}
 			result = append(result, m)
