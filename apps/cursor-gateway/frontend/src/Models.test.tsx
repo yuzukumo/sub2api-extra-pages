@@ -153,13 +153,13 @@ test("effort options come from model metadata and incompatible models stay disab
         context_window: 128000,
       },
       {
-        id: "image-model",
+        id: "non-reasoning-model",
         provider: "sub-openai",
         is_openai: true,
         efforts: [],
         effort_source: "models.dev",
         injected_effort: "",
-        context_window: 0,
+        context_window: 128000,
       },
     ],
   };
@@ -190,7 +190,7 @@ test("effort options come from model metadata and incompatible models stay disab
     </QueryClientProvider>
   );
   const { rerender } = render(view(account));
-  for (const model of ["compatible-model", "image-model"]) {
+  for (const model of ["compatible-model", "non-reasoning-model"]) {
     const disabled = screen.getByRole("combobox", { name: `${model} 注入等级` }) as HTMLInputElement;
     expect(disabled.disabled).toBe(true);
     expect(disabled.value).toBe("");

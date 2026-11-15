@@ -50,6 +50,7 @@ In **Available models**, each user can customize a model's context window or res
 | Topic | Behavior |
 | --- | --- |
 | Keys and models | Supports OpenAI, Claude, Grok, and Gemini. Each key belongs to one API format, and model names must be unique across selected keys |
+| Model filtering | Uses models.dev types and output modalities to exclude image, video, embedding, speech, transcription, realtime, and other specialized models. Ordinary text chat models with image or audio input remain available. Filtered models are also blocked from direct inference requests |
 | Base URL | Uses `/v1`, with compatibility for URLs without it |
 | Protocol | OpenAI and Grok use native Responses, and Claude uses native Messages. Gemini uses Responses in Cursor, with Bifrost converting to the upstream's native Gemini API |
 | Reasoning | Levels come from [models.dev](https://models.dev/), falling back to `low`, `medium`, and `high`. Explicit client levels are preserved and validated |
@@ -66,7 +67,7 @@ Client IPs reach Sub2API usage records through standard forwarding headers. Set 
 
 Selecting no keys disables model access. Rotating the aggregate key invalidates the old one. Restarting the gateway keeps aggregate keys but requires signing in again.
 
-models.dev metadata refreshes every three hours. Failures retry twice, then keep the previous snapshot until the next refresh. Cursor's own model rules determine which reasoning controls appear.
+models.dev metadata refreshes every three hours. Failures retry twice, then keep the previous snapshot until the next refresh. Models without enough metadata to identify their purpose retain the existing defaults. Filtering does not remove saved model settings. Cursor's own model rules determine which reasoning controls appear.
 
 Login supports password, TOTP, Cloudflare Turnstile, and Tencent captcha. Add the gateway domain to the captcha provider's allowed domains when required. Aliyun captcha is unsupported.
 

@@ -39,6 +39,73 @@ func activeAccount() Account {
 	return Account{User: User{ID: 7, Role: "user", Status: "active"}, AccessToken: "sub-token", TokenExpires: time.Now().Add(time.Hour), VirtualKey: "internal-bifrost-key", GatewayKey: "gateway-key", SyncedAt: time.Now(), SelectedSourceIDs: []int64{}, Bindings: []Binding{}}
 }
 
+func TestSpecializedModelsAreExcludedFromListsInferenceAndSettings(t *testing.T) {
+	a := activeAccount()
+	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"text-model", "image-model"}}}
+	a.ContextOverrides = map[string]ModelContextOverride{"image-model": {ContextWindow: 9000}}
+	upstreamCalls := 0
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(w, map[string]any{"code": 0, "data": a.User})
+	}, func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls++
+		jsonResponse(w, map[string]string{"status": "completed"})
+	})
+	setModelsDev(t, s, `{"openai":{"models":{
+		"text-model":{"modalities":{"input":["text","image"],"output":["text"]}},
+		"image-model":{"type":"image","modalities":{"output":["image"]}},
+		"unowned-text-model":{"modalities":{"output":["text"]}}
+	}}}`)
+	if err := s.store.save(&a); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/v1/models", "/models", "/api/account"} {
+		r := sessionRequest(s, "GET", path, "")
+		r.Header.Set("Authorization", "Bearer "+a.GatewayKey)
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		var result struct {
+			Data   []Model `json:"data"`
+			Models []Model `json:"models"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		listed := append(result.Data, result.Models...)
+		if w.Code != 200 || len(listed) != 1 || listed[0].ID != "text-model" {
+			t.Fatalf("%s did not expose only the selected text model: %s", path, w.Body.String())
+		}
+	}
+	for _, path := range []string{"/v1/responses", "/responses", "/v1/messages", "/messages"} {
+		r := httptest.NewRequest("POST", path, strings.NewReader(`{"model":"image-model"}`))
+		r.Header.Set("Authorization", "Bearer "+a.GatewayKey)
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		if w.Code != 403 {
+			t.Fatalf("filtered model bypassed inference filtering on %s: %d", path, w.Code)
+		}
+	}
+	for _, setting := range []struct{ path, body string }{
+		{"/api/models/context", `{"model":"image-model","context_window":1000}`},
+		{"/api/models/effort", `{"model":"image-model","effort":"low"}`},
+	} {
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, sessionRequest(s, "PUT", setting.path, setting.body))
+		if w.Code != 403 {
+			t.Fatalf("filtered model accepted a setting on %s: %d", setting.path, w.Code)
+		}
+	}
+	if upstreamCalls != 0 || s.store.snapshot().Accounts[a.User.ID].ContextOverrides["image-model"].ContextWindow != 9000 {
+		t.Fatal("filtering forwarded a blocked request or changed a saved model setting")
+	}
+	r := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(`{"model":"text-model"}`))
+	r.Header.Set("Authorization", "Bearer "+a.GatewayKey)
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, r)
+	if w.Code != 200 || upstreamCalls != 1 {
+		t.Fatalf("selected text model could not run: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestModelEffortSettingsAreOwnedDurableAndAppliedOnlyToMissingEffort(t *testing.T) {
 	a := activeAccount()
 	a.Bindings = []Binding{{Provider: "sub-openai", Models: []string{"test-model", "compatible-model", "image-model", "plain-model"}}}
@@ -90,9 +157,9 @@ func TestModelEffortSettingsAreOwnedDurableAndAppliedOnlyToMissingEffort(t *test
 		{`{"model":"test-model","effort":"low","user_id":8}`, 400},
 		{`{"model":"unowned-model","effort":"low"}`, 403},
 		{`{"model":"compatible-model","effort":"low"}`, 400},
-		{`{"model":"image-model","effort":"low"}`, 400},
-		{`{"model":"image-model","effort":""}`, 400},
-		{`{"model":"image-model","effort":null}`, 400},
+		{`{"model":"image-model","effort":"low"}`, 403},
+		{`{"model":"image-model","effort":""}`, 403},
+		{`{"model":"image-model","effort":null}`, 403},
 		{`{"model":"plain-model","effort":""}`, 400},
 		{`{"model":"plain-model","effort":null}`, 400},
 	} {

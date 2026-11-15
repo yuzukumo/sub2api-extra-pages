@@ -166,8 +166,8 @@ export function Dashboard({ account }: { account: Account }) {
             <Title order={4}>{t("连接 Cursor", "Connect Cursor")}</Title>
             <Text size="sm" c="dimmed" mt={4}>
               {t(
-                "在 Cursor 的 Models > Gateway 中填入以下地址和 key，即可使用全部已选模型",
-                "Enter this URL and key in Cursor's Models > Gateway settings to access all selected models",
+                "在 Cursor 的 Models > Gateway 中填入以下地址和 key，即可使用「可用模型」中的模型",
+                "Enter this URL and key in Cursor's Models > Gateway settings to access the models listed in Available models",
               )}
             </Text>
           </div>

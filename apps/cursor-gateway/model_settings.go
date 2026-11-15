@@ -24,7 +24,7 @@ func (s *Server) updateModelContext(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	if !slices.ContainsFunc(a.Bindings, func(b Binding) bool { return slices.Contains(b.Models, input.Model) }) {
+	if !slices.ContainsFunc(s.catalog.models(r.Context(), a, s.config.LimitContextToFirstTier), func(m Model) bool { return m.ID == input.Model }) {
 		fail(w, problem(403, "model_blocked", "This model is not available for your account"))
 		return
 	}

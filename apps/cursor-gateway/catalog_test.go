@@ -70,6 +70,44 @@ func TestCatalogUsesProviderEffortEnumsAndDefaultLevelsWithoutExpandingPermissio
 	}
 }
 
+func TestCatalogFiltersSpecializedModelsByTypeAndOutput(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		spec string
+		want bool
+	}{
+		{"text", `{"modalities":{"output":["text"]}}`, true},
+		{"chat", `{"type":"chat","modalities":{"output":["text"]}}`, true},
+		{"vision", `{"modalities":{"input":["text","image"],"output":["text"]}}`, true},
+		{"audio input", `{"modalities":{"input":["text","audio"],"output":["text"]}}`, true},
+		{"legacy metadata", `{}`, true},
+		{"text and image output", `{"modalities":{"output":["text","image"]}}`, false},
+		{"text and audio output", `{"type":"chat","modalities":{"output":["text","audio"]}}`, false},
+		{"audio output", `{"modalities":{"output":["audio"]}}`, false},
+		{"image", `{"type":"image","modalities":{"output":["text"]}}`, false},
+		{"embedding", `{"type":"embedding","modalities":{"output":["text"]}}`, false},
+		{"speech", `{"type":"speech"}`, false},
+		{"transcription", `{"type":"transcription","modalities":{"output":["text"]}}`, false},
+		{"realtime", `{"type":"realtime","modalities":{"output":["text"]}}`, false},
+		{"video", `{"type":"video"}`, false},
+		{"reranking", `{"type":"reranking"}`, false},
+		{"other specialized type", `{"type":"specialized"}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"provider":{"models":{"test-model":` + test.spec + `}}}`))
+			}))
+			defer upstream.Close()
+			catalog := newModelCatalog(upstream.Client(), "")
+			catalog.endpoint = upstream.URL
+			models := catalog.models(context.Background(), Account{Bindings: []Binding{{Provider: "sub-openai", Models: []string{"test-model"}}}}, false)
+			if (len(models) == 1) != test.want || len(models) > 1 {
+				t.Fatalf("model availability = %#v, want included = %t", models, test.want)
+			}
+		})
+	}
+}
+
 func TestCatalogIdentifiesModelAuthorsAcrossCompatibleProvidersAndAppliesOwnedEffort(t *testing.T) {
 	s := testServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) })
 	setModelsDev(t, s, `{
@@ -92,7 +130,7 @@ func TestCatalogIdentifiesModelAuthorsAcrossCompatibleProvidersAndAppliesOwnedEf
 		openAI bool
 		effort string
 	}{
-		"reasoning-model": {true, "future-effort"}, "plain-model": {true, ""}, "image-model": {true, ""},
+		"reasoning-model": {true, "future-effort"}, "plain-model": {true, ""},
 		"grok-compatible": {false, ""}, "hosted-alias": {true, "xhigh"},
 		"gpt-unlisted": {true, ""}, "gpt-other-author": {false, ""}, "unknown-compatible": {false, ""},
 	}
@@ -100,8 +138,8 @@ func TestCatalogIdentifiesModelAuthorsAcrossCompatibleProvidersAndAppliesOwnedEf
 		if model.IsOpenAI != want[model.ID].openAI || model.InjectedEffort != want[model.ID].effort || model.Provider != "sub-openai" {
 			t.Fatalf("model identity or effort incorrectly used the API format: %#v", model)
 		}
-		if (model.ID == "plain-model" || model.ID == "image-model") && (len(model.Efforts) != 0 || model.EffortOverride != nil) {
-			t.Fatal("an image or non-reasoning OpenAI model received effort options or an override")
+		if model.ID == "plain-model" && (len(model.Efforts) != 0 || model.EffortOverride != nil) {
+			t.Fatal("a non-reasoning OpenAI model received effort options or an override")
 		}
 		if model.ID == "grok-compatible" && (model.ContextWindow != 4800 || !reflect.DeepEqual(model.Efforts, []string{"high"})) {
 			t.Fatal("compatible API routing selected another author's model metadata")

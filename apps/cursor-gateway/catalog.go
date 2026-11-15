@@ -30,7 +30,8 @@ type modelSpec struct {
 		Output  int `json:"output"`
 	} `json:"limit"`
 	Modalities struct {
-		Input []string `json:"input"`
+		Input  []string `json:"input"`
+		Output []string `json:"output"`
 	} `json:"modalities"`
 	Cost struct {
 		Tiers []struct {
@@ -191,6 +192,9 @@ func (c *ModelCatalog) models(ctx context.Context, a Account, limitToFirstTier b
 	for _, b := range a.Bindings {
 		for _, id := range b.Models {
 			spec, author := data.lookup(id, providers)
+			if (spec.Type != "" && spec.Type != "chat") || (len(spec.Modalities.Output) > 0 && !slices.Equal(spec.Modalities.Output, []string{"text"})) {
+				continue
+			}
 			isOpenAI := author == "openai" || (author == "" && strings.HasPrefix(strings.TrimPrefix(id, "openai/"), "gpt-"))
 			m := Model{
 				ID: id, Provider: b.Provider, IsOpenAI: isOpenAI, Efforts: []string{"low", "medium", "high"}, EffortSource: "default",
@@ -208,7 +212,7 @@ func (c *ModelCatalog) models(ctx context.Context, a Account, limitToFirstTier b
 					break
 				}
 			}
-			if spec.Type == "image" || (m.IsOpenAI && spec.Reasoning != nil && !*spec.Reasoning) {
+			if m.IsOpenAI && spec.Reasoning != nil && !*spec.Reasoning {
 				m.Efforts = []string{}
 				m.EffortSource = "models.dev"
 			}

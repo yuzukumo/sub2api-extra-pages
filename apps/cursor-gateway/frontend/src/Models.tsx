@@ -69,8 +69,8 @@ export function Models({ account }: { account: Account }) {
         <Title order={2}>{t("可用模型", "Available models")}</Title>
         <Text c="dimmed" size="sm" mt={6}>
           {t(
-            "你已选 key 提供的全部模型，思考等级由网关自动读取",
-            "All models available through your selected keys, with reasoning levels read automatically",
+            "你已选 key 提供的对话模型，思考等级由网关自动读取",
+            "Chat models available through your selected keys, with reasoning levels read automatically",
           )}
         </Text>
       </div>
@@ -260,8 +260,8 @@ export function Models({ account }: { account: Account }) {
             <Text fw={500}>{t("暂无可用模型", "No models available")}</Text>
             <Text c="dimmed" size="sm" ta="center">
               {t(
-                "请在 Key 选择中勾选可用的 key 并同步",
-                "Select active keys in Key selection and sync them",
+                "请在 Key 选择中勾选可用的 key 并同步，生图、语音等专用模型不会显示",
+                "Select active keys in Key selection and sync. Specialized models such as image and speech models are excluded",
               )}
             </Text>
           </Stack>
